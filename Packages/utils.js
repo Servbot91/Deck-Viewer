@@ -3,6 +3,9 @@ export const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Oper
                      window.innerWidth < 768 ||
                      ('ontouchstart' in window);
 
+// Create imageCache in utils.js scope
+const imageCache = new Map();
+
 // Optimized image preloader
 export function preloadImage(src, priority = false) {
     if (imageCache.has(src)) {
@@ -21,4 +24,14 @@ export function preloadImage(src, priority = false) {
         img.onerror = reject;
         img.src = src;
     });
+}
+
+// Export the cache for debugging purposes
+export function getImageCache() {
+    return imageCache;
+}
+
+// Export function to clear cache if needed
+export function clearImageCache() {
+    imageCache.clear();
 }

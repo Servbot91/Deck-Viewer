@@ -1,9 +1,9 @@
 import { getPluginConfig, injectDynamicStyles, PLUGIN_NAME } from './config.js';
-import { detectContext, fetchContextImages, getVisibleImages } from './context.js';
+import { detectContext, fetchContextImages, getVisibleImages, getVisibleGalleryCovers } from './context.js';
 import { fetchImageMetadata, updateImageMetadata, updateImageTags, searchTags } from './graphql.js';
 import { initSwiper } from './swiper.js';
 import { initParticles, stopParticles } from './particles.js';
-import { isMobile, preloadImage } from './utils.js';
+import { isMobile, preloadImage, clearImageCache } from './utils.js';
 
 let pluginConfig = null;
 let currentSwiper = null;
@@ -11,8 +11,12 @@ let currentImages = [];
 let autoPlayInterval = null;
 let isAutoPlaying = false;
 let contextInfo = null;
-let imageCache = new Map();
 let loadingQueue = [];
+let currentChunkPage = 1;
+let chunkSize = 50;
+let totalImageCount = 0;
+let totalPages = 0;
+let storedContextInfo = null;
 
 // Export initialize function for main.js
 export function initialize() {
@@ -34,7 +38,9 @@ export function initialize() {
         debounceTimer = setTimeout(() => {
             // Check if button exists and we're still on a valid page
             const hasButton = document.querySelector('.image-deck-launch-btn');
-            const shouldHaveButton = detectContext() || document.querySelectorAll('img[src*="/image/"]').length > 0;
+            const shouldHaveButton = detectContext() || 
+                                   document.querySelectorAll('img[src*="/image/"]').length > 0 ||
+                                   document.querySelectorAll('.gallery-cover img, .gallery-card img').length > 0;
 
             if (!hasButton && shouldHaveButton) {
                 createLaunchButton();
@@ -55,29 +61,51 @@ export function initialize() {
     console.log('[Image Deck] Initialized');
 }
 
-// Detect mobile device
-export const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
-                     window.innerWidth < 768 ||
-                     ('ontouchstart' in window);
-
 // Create launch button
 export function createLaunchButton() {
+    console.log('[Image Deck] Creating launch button...');
+    
     // Check if we're on a relevant page
-    if (!detectContext() && document.querySelectorAll('img[src*="/image/"]').length === 0) {
+    const context = detectContext();
+    const hasImages = document.querySelectorAll('img[src*="/image/"]').length > 0;
+    const hasGalleryCovers = document.querySelectorAll('.gallery-cover img, .gallery-card img').length > 0;
+    
+    console.log('[Image Deck] Context detection result:', context);
+    console.log('[Image Deck] Has images:', hasImages);
+    console.log('[Image Deck] Has gallery covers:', hasGalleryCovers);
+    
+    if (!context && !hasImages && !hasGalleryCovers) {
+        console.log('[Image Deck] Not on relevant page, removing button if exists');
+        // If not on relevant page, remove any existing button
+        const existing = document.querySelector('.image-deck-launch-btn');
+        if (existing) existing.remove();
         return;
     }
 
     // Remove any existing button
     const existing = document.querySelector('.image-deck-launch-btn');
-    if (existing) existing.remove();
+    if (existing) {
+        console.log('[Image Deck] Removing existing button');
+        existing.remove();
+    }
 
     const button = document.createElement('button');
     button.className = 'image-deck-launch-btn';
     button.innerHTML = '🎴';
     button.title = 'Open Image Deck';
-    button.addEventListener('click', openDeck);
+    button.addEventListener('click', function(e) {
+        console.log('[Image Deck] Launch button clicked!');
+        openDeck();
+    });
 
     document.body.appendChild(button);
+    console.log('[Image Deck] Launch button created successfully');
+}
+
+// Function to clean up the button when navigating away
+export function cleanupButton() {
+    const existing = document.querySelector('.image-deck-launch-btn');
+    if (existing) existing.remove();
 }
 
 // Retry creating launch button with exponential backoff
@@ -91,50 +119,13 @@ export function retryCreateButton(attempts = 0, maxAttempts = 5) {
 
     const hasContext = detectContext();
     const hasImages = document.querySelectorAll('img[src*="/image/"]').length > 0;
+    const hasGalleryCovers = document.querySelectorAll('.gallery-cover img, .gallery-card img').length > 0;
 
-    if (hasContext || hasImages) {
+    if (hasContext || hasImages || hasGalleryCovers) {
         createLaunchButton();
     } else if (attempts < maxAttempts - 1) {
         setTimeout(() => retryCreateButton(attempts + 1, maxAttempts), delays[attempts]);
     }
-}
-
-// Optimized image preloader
-export function preloadImage(src, priority = false) {
-    if (imageCache.has(src)) {
-        return Promise.resolve(imageCache.get(src));
-    }
-
-    return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.decoding = 'async';
-        img.loading = priority ? 'eager' : 'lazy';
-
-        img.onload = () => {
-            imageCache.set(src, img);
-            resolve(img);
-        };
-        img.onerror = reject;
-        img.src = src;
-    });
-}
-
-// Upgrade slide image to full resolution
-function upgradeImageToFull(slide) {
-    if (!slide) return;
-
-    const img = slide.querySelector('img');
-    if (!img) return;
-
-    const fullSrc = img.dataset.fullSrc;
-    if (!fullSrc || img.src === fullSrc) return;
-
-    // Load full resolution
-    preloadImage(fullSrc, true).then(() => {
-        img.src = fullSrc;
-    }).catch(err => {
-        console.warn('[Image Deck] Failed to load full resolution:', err);
-    });
 }
 
 // Create the image deck UI
@@ -167,6 +158,7 @@ function createDeckUI() {
             <button class="image-deck-control-btn" data-action="play">▶</button>
             <button class="image-deck-control-btn" data-action="next">▶</button>
             <button class="image-deck-control-btn image-deck-info-btn" data-action="info" title="Image Info (I)">ℹ</button>
+            <button class="image-deck-control-btn" data-action="next-chunk" title="Load Next Chunk">⏭️</button>
         </div>
         <div class="image-deck-speed">Speed: ${pluginConfig.autoPlayInterval}ms</div>
         <div class="image-deck-metadata-modal">
@@ -183,7 +175,7 @@ function createDeckUI() {
     document.body.appendChild(container);
 
     // Initialize particles
-    initParticles(container.querySelector('.image-deck-particles'));
+    initParticles(container.querySelector('.image-deck-particles'), pluginConfig);
 
     return container;
 }
@@ -471,14 +463,39 @@ function updateUI(container) {
 
     uiUpdatePending = true;
     requestAnimationFrame(() => {
-        const current = currentSwiper.activeIndex + 1;
-        const total = currentSwiper.slides.length || currentImages.length;
+        let current = 1;
+        const displayedTotal = currentImages.length;
+        const actualTotal = totalImageCount || displayedTotal;
 
-        // Update counter
+        // Handle virtual slides differently
+        if (currentSwiper.virtual) {
+            // For virtual slides, we track the active slide index
+            current = currentSwiper.activeIndex + 1;
+            //console.log('[Image Deck] Virtual mode - Active index:', currentSwiper.activeIndex, 'Total slides:', currentSwiper.virtual.slides.length);
+        } else {
+            // Handle looped galleries properly
+            if (currentSwiper.params.loop && contextInfo?.isSingleGallery) {
+                // For looped galleries, get the real index
+                const realIndex = currentSwiper.realIndex + 1;
+                // Handle the case where we're at the cloned slides at the beginning/end
+                if (realIndex === 0) {
+                    current = displayedTotal; // Last slide
+                } else if (realIndex > displayedTotal) {
+                    current = 1; // First slide
+                } else {
+                    current = realIndex;
+                }
+            } else {
+                current = currentSwiper.activeIndex + 1;
+            }
+        }
+
+        // Update counter with chunk info
         if (pluginConfig.showCounter) {
             const counter = container.querySelector('.image-deck-counter');
-            if (counter && counter.textContent !== `${current} of ${total}`) {
-                counter.textContent = `${current} of ${total}`;
+            const chunkInfo = totalPages > 1 ? ` (chunk ${currentChunkPage}/${totalPages})` : '';
+            if (counter) {
+                counter.textContent = `${current} of ${actualTotal}${chunkInfo}`;
             }
         }
 
@@ -486,12 +503,31 @@ function updateUI(container) {
         if (pluginConfig.showProgressBar) {
             const progress = container.querySelector('.image-deck-progress');
             if (progress) {
-                progress.style.transform = `scaleX(${current / total})`;
+                const progressValue = actualTotal > 0 ? current / actualTotal : 0;
+                progress.style.transform = `scaleX(${progressValue})`;
             }
         }
 
         uiUpdatePending = false;
     });
+}
+
+function checkAndLoadNextChunk() {
+    if (!currentSwiper) return;
+    
+    const currentIndex = currentSwiper.activeIndex;
+    const totalCurrentSlides = currentImages.length;
+    
+    // If we're within 5 slides of the end, try to load next chunk
+    if (currentIndex >= totalCurrentSlides - 5 && currentChunkPage < totalPages) {
+        const nextChunkBtn = document.querySelector('[data-action="next-chunk"]');
+        if (nextChunkBtn && !nextChunkBtn.disabled) {
+            console.log('[Image Deck] Approaching end, preloading next chunk...');
+            setTimeout(() => {
+                if (nextChunkBtn) nextChunkBtn.click();
+            }, 500);
+        }
+    }
 }
 
 // Auto-play controls
@@ -556,57 +592,309 @@ function restorePosition() {
     }
 }
 
-// Open the image deck
-export async function openDeck() {
-    // Load config
-    pluginConfig = await getPluginConfig();
-
-    // Inject dynamic styles
-    injectDynamicStyles(pluginConfig);
-
-    // Get context
-    contextInfo = detectContext();
-    if (!contextInfo && document.querySelectorAll('img[src*="/image/"]').length === 0) {
-        console.warn('[Image Deck] No image context detected');
-        return;
-    }
-
-    // Fetch images
-    currentImages = contextInfo ? await fetchContextImages(contextInfo) : getVisibleImages();
-
-    if (currentImages.length === 0) {
-        console.warn('[Image Deck] No images found');
-        return;
-    }
-
-    console.log(`[Image Deck] Opening with ${currentImages.length} images`);
-
-    // Clear image cache if it's getting too large
-    if (imageCache.size > 100) {
-        imageCache.clear();
-    }
-
-    // Create UI
-    const container = createDeckUI();
-    document.body.classList.add('image-deck-open');
-
-    // Animate in with GPU acceleration
-    requestAnimationFrame(() => {
-        container.classList.add('active');
+function debugPageElements() {
+    console.log('[Image Deck] === PAGE DEBUG INFO ===');
+    console.log('Current URL:', window.location.href);
+    console.log('Document title:', document.title);
+    
+    // Find all images
+    const allImages = document.querySelectorAll('img');
+    console.log('Total images on page:', allImages.length);
+    
+    // Find images that might be gallery covers
+    const galleryImages = Array.from(allImages).filter(img => 
+        img.src && (img.src.includes('/image/') || img.src.includes('/thumbnail/'))
+    );
+    console.log('Potential gallery images:', galleryImages.length);
+    
+    // Find links to galleries
+    const galleryLinks = document.querySelectorAll('a[href*="/galleries/"]');
+    console.log('Gallery links found:', galleryLinks.length);
+    galleryLinks.forEach((link, i) => {
+        console.log(`  Link ${i}:`, link.href, 'Text:', link.textContent);
     });
-
-    // Initialize Swiper
-    initSwiper(container, currentImages);
-
-    // Restore position
-    restorePosition();
-
-    // Initial UI update
-    updateUI(container);
-
-    // Setup event handlers
-    setupEventHandlers(container);
+    
+    // Find potential gallery containers
+    const potentialContainers = document.querySelectorAll('[class*="gallery"], [class*="card"], [data-target="thumbnail"]');
+    console.log('Potential containers:', potentialContainers.length);
+    
+    console.log('[Image Deck] === END DEBUG INFO ===');
 }
+
+export async function openDeck() {
+    console.log('[Image Deck] Opening deck...');
+    console.log('[Image Deck] Current URL:', window.location.pathname);
+    
+    try {
+        // Reset chunk tracking
+        currentChunkPage = 1;
+        chunkSize = 50;
+        totalImageCount = 0;
+        totalPages = 0;
+
+        // Load config
+        pluginConfig = await getPluginConfig();
+        console.log('[Image Deck] Plugin config loaded:', pluginConfig);
+
+        // Inject dynamic styles
+        injectDynamicStyles(pluginConfig);
+
+        // Get context - STORE IT IN MODULE SCOPE
+        const detectedContext = detectContext();
+        storedContextInfo = detectedContext;
+        contextInfo = detectedContext;
+
+        console.log('[Image Deck] Context detected:', storedContextInfo);
+        
+        // Enhanced manual context creation for single galleries
+        if ((!detectedContext || detectedContext.isGalleryListing) && window.location.pathname.startsWith('/galleries')) {
+            const galleryIdMatch = window.location.pathname.match(/^\/galleries\/(\d+)/);
+            if (galleryIdMatch) {
+                const manualContext = {
+                    type: 'galleries',
+                    id: galleryIdMatch[1],
+                    isSingleGallery: true
+                };
+                storedContextInfo = manualContext;
+                contextInfo = manualContext;
+                console.log('[Image Deck] Manual context override created:', manualContext);
+            }
+        }
+        
+        
+        // Determine what content to show
+        let imageResult;
+        if (storedContextInfo) {
+            console.log('[Image Deck] Using context-based fetching');
+            imageResult = await fetchContextImages(storedContextInfo, 1, chunkSize);
+        } else if (window.location.pathname.startsWith('/galleries')) {
+            console.log('[Image Deck] Checking gallery page type');
+            // Check if we're on a single gallery page
+            const galleryIdMatch = window.location.pathname.match(/^\/galleries\/(\d+)/);
+            if (galleryIdMatch) {
+                console.log('[Image Deck] Single gallery page detected');
+                // We're on a single gallery page, fetch images from this gallery
+                const galleryContext = {
+                    type: 'galleries',
+                    id: galleryIdMatch[1],
+                    isSingleGallery: true
+                };
+                imageResult = await fetchContextImages(galleryContext, 1, chunkSize);
+            } else {
+                console.log('[Image Deck] Gallery listing page detected');
+                // On galleries listing page, get visible gallery covers
+                imageResult = getVisibleGalleryCovers();
+            }
+        } else {
+            console.log('[Image Deck] Falling back to visible images');
+            // Default to visible images
+            imageResult = getVisibleImages();
+        }
+        
+        // Handle both return formats
+        if (Array.isArray(imageResult)) {
+            currentImages = imageResult;
+            totalImageCount = imageResult.length;
+            totalPages = 1;
+        } else {
+            currentImages = imageResult.images;
+            totalImageCount = imageResult.totalCount;
+            totalPages = imageResult.totalPages;
+            currentChunkPage = imageResult.currentPage;
+        }
+
+		if (currentImages.length === 0) {
+			console.warn('[Image Deck] No images found');
+			
+			// Provide more helpful error message
+			let errorMessage = 'No images found to display in Image Deck.\n\n';
+			
+			if (storedContextInfo && storedContextInfo.isGalleryListing) {
+				errorMessage += 'This appears to be a gallery listing page. ';
+				errorMessage += 'Make sure you are on a page with visible gallery covers, ';
+				errorMessage += 'or navigate to a specific gallery to view its images.';
+			} else if (storedContextInfo && storedContextInfo.isSingleGallery) {
+				errorMessage += 'This appears to be a single gallery page, but no images were found. ';
+				errorMessage += 'The gallery might be empty or there might be a loading issue.';
+			} else {
+				errorMessage += 'No compatible content found on this page.';
+			}
+			
+			alert(errorMessage);
+			return;
+		}
+        console.log(`[Image Deck] Opening with ${currentImages.length} images (chunk 1 of ${totalPages || 1})`);
+
+        // Create UI
+        const container = createDeckUI();
+        document.body.classList.add('image-deck-open');
+
+        // Animate in with GPU acceleration
+        requestAnimationFrame(() => {
+            container.classList.add('active');
+        });
+
+        // Initialize Swiper
+        currentSwiper = initSwiper(container, currentImages, pluginConfig, updateUI, savePosition, contextInfo);
+        
+        // Restore position
+        restorePosition();
+
+        // Initial UI update
+        updateUI(container);
+
+        // Setup event handlers
+        setupEventHandlers(container);
+        
+    } catch (error) {
+        console.error('[Image Deck] Error opening deck:', error);
+        alert('Error opening Image Deck: ' + error.message);
+    }
+}
+
+// Load next chunk of images
+async function loadNextChunk() {
+    console.log('[Image Deck] Attempting to load next chunk');
+    
+    // Always use the stored context info as primary source
+    const contextToUse = storedContextInfo || contextInfo || detectContext();
+    
+    if (!contextToUse) {
+        console.log('[Image Deck] No context info available');
+        // Try to detect context again as fallback
+        const freshContext = detectContext();
+        if (!freshContext) {
+            console.log('[Image Deck] Could not detect context');
+            const loadingIndicator = document.querySelector('.image-deck-loading');
+            if (loadingIndicator) {
+                loadingIndicator.textContent = 'Cannot detect context';
+                setTimeout(() => {
+                    loadingIndicator.style.display = 'none';
+                }, 2000);
+            }
+            return;
+        }
+        storedContextInfo = freshContext; // Store the fresh context
+        contextInfo = freshContext;
+    }
+
+    console.log('[Image Deck] Loading chunk', (currentChunkPage + 1), 'with context:', contextToUse);
+    
+    const loadingIndicator = document.querySelector('.image-deck-loading');
+    if (loadingIndicator) {
+        loadingIndicator.style.display = 'block';
+        loadingIndicator.textContent = 'Loading next chunk...';
+        // Add visual feedback that loading started
+        loadingIndicator.style.backgroundColor = 'rgba(100, 100, 255, 0.3)';
+        loadingIndicator.style.color = 'white';
+        loadingIndicator.style.fontWeight = 'bold';
+    }
+
+    // Also provide immediate visual feedback on the next-chunk button
+    const nextChunkButton = document.querySelector('[data-action="next-chunk"]');
+    if (nextChunkButton) {
+        nextChunkButton.innerHTML = '🔄'; // Show loading spinner
+        nextChunkButton.disabled = true;
+        nextChunkButton.style.opacity = '0.5';
+    }
+
+    try {
+        const nextPage = currentChunkPage + 1;
+        console.log('[Image Deck] Fetching page', nextPage, 'with chunk size', chunkSize);
+        
+        const result = await fetchContextImages(contextToUse, nextPage, chunkSize);
+        
+        console.log('[Image Deck] Fetched chunk result:', result);
+        
+        // Check if there are more images to load
+        if (!result || !result.images || result.images.length === 0) {
+            console.log('[Image Deck] No more images to load (empty result)');
+            if (loadingIndicator) {
+                loadingIndicator.textContent = 'No more images to load';
+                loadingIndicator.style.backgroundColor = 'rgba(255, 100, 100, 0.3)'; // Red for error/info
+                setTimeout(() => {
+                    loadingIndicator.style.display = 'none';
+                }, 2000);
+            }
+            return;
+        }
+        
+        // Add new images to currentImages array
+        const oldLength = currentImages.length;
+        currentImages.push(...result.images);
+        totalImageCount = result.totalCount || totalImageCount;
+        totalPages = result.totalPages || totalPages;
+        currentChunkPage = nextPage; // Update the current page
+        
+        console.log(`[Image Deck] Added ${result.images.length} new images, total: ${currentImages.length}`);
+        
+        // Update swiper with new images - SPECIFICALLY FOR VIRTUAL SLIDES
+        if (currentSwiper && currentSwiper.virtual && result.images.length > 0) {
+            // Create new slide HTML for virtual swiper
+            const newSlides = result.images.map(img => {
+                const fullSrc = img.paths.image;
+                // Make sure the image has proper styling
+                return `<div class="swiper-zoom-container"><img src="${fullSrc}" alt="${img.title || ''}" decoding="async" loading="lazy" style="max-width: 100%; height: auto; display: block; margin: 0 auto;" /></div>`;
+            });
+            
+            // Add new slides to virtual swiper
+            currentSwiper.virtual.slides.push(...newSlides);
+            
+            // Force update virtual swiper
+            currentSwiper.virtual.update(true); // Force update
+            
+            console.log(`[Image Deck] Added ${newSlides.length} virtual slides`);
+        }
+        
+        // Update UI
+        const container = document.querySelector('.image-deck-container');
+        if (container) {
+            updateUI(container);
+        }
+        
+        // Success feedback
+        if (loadingIndicator) {
+            loadingIndicator.textContent = `✓ Loaded ${result.images.length} images (chunk ${nextPage})`;
+            loadingIndicator.style.backgroundColor = 'rgba(100, 255, 100, 0.3)'; // Green for success
+            // Auto-hide after 2 seconds
+            setTimeout(() => {
+                loadingIndicator.style.display = 'none';
+            }, 2000);
+        }
+        
+        console.log(`[Image Deck] Successfully loaded chunk ${nextPage}, total images: ${currentImages.length}`);
+        
+    } catch (error) {
+        console.error('[Image Deck] Error loading next chunk:', error);
+        const loadingIndicator = document.querySelector('.image-deck-loading');
+        if (loadingIndicator) {
+            loadingIndicator.textContent = 'Error loading chunk: ' + (error.message || 'Unknown error');
+            loadingIndicator.style.backgroundColor = 'rgba(255, 100, 100, 0.3)'; // Red for error
+            setTimeout(() => {
+                loadingIndicator.style.display = 'none';
+            }, 3000);
+        }
+    } finally {
+        // Re-enable the next-chunk button
+        const nextChunkButton = document.querySelector('[data-action="next-chunk"]');
+        if (nextChunkButton) {
+            nextChunkButton.innerHTML = '⏭️'; // Restore original icon
+            nextChunkButton.disabled = false;
+            nextChunkButton.style.opacity = '1';
+        }
+        
+        // Ensure loading indicator hides even if there was an error
+        const loadingIndicator = document.querySelector('.image-deck-loading');
+        if (loadingIndicator) {
+            setTimeout(() => {
+                if (loadingIndicator.style.display !== 'none') {
+                    loadingIndicator.style.display = 'none';
+                }
+            }, 3000);
+        }
+    }
+}
+
 
 // Close the deck
 export function closeDeck() {
@@ -636,7 +924,10 @@ export function closeDeck() {
 // Setup event handlers
 function setupEventHandlers(container) {
     // Close button
-    container.querySelector('.image-deck-close').addEventListener('click', closeDeck);
+    const closeBtn = container.querySelector('.image-deck-close');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', closeDeck);
+    }
 
     // Fullscreen button
     const fullscreenBtn = container.querySelector('.image-deck-fullscreen');
@@ -656,29 +947,56 @@ function setupEventHandlers(container) {
         metadataCloseBtn.addEventListener('click', closeMetadataModal);
     }
 
-    // Control buttons
-    container.addEventListener('click', (e) => {
-        const action = e.target.dataset.action;
-        if (!action) return;
+    // Control buttons - Make sure we're attaching to the right elements
+    const controlButtons = container.querySelectorAll('.image-deck-control-btn');
+    console.log('[Image Deck] Found control buttons:', controlButtons.length);
+    
+    controlButtons.forEach(button => {
+        button.addEventListener('click', (e) => {
+            const action = button.dataset.action;
+            console.log('[Image Deck] Button clicked:', action);
 
-        switch(action) {
-            case 'prev':
-                currentSwiper?.slidePrev();
-                break;
-            case 'next':
-                currentSwiper?.slideNext();
-                break;
-            case 'play':
-                if (isAutoPlaying) {
-                    stopAutoPlay();
-                } else {
-                    startAutoPlay();
-                }
-                break;
-            case 'info':
-                openMetadataModal();
-                break;
-        }
+            if (!action) return;
+
+            switch(action) {
+                case 'prev':
+                    console.log('[Image Deck] Previous button clicked');
+                    if (currentSwiper) {
+                        currentSwiper.slidePrev();
+                    } else {
+                        console.log('[Image Deck] No swiper instance found');
+                    }
+                    break;
+                case 'next':
+                    console.log('[Image Deck] Next button clicked');
+                    if (currentSwiper) {
+                        currentSwiper.slideNext();
+                        // Check if we need to load next chunk
+                        setTimeout(checkAndLoadNextChunk, 100);
+                    } else {
+                        console.log('[Image Deck] No swiper instance found');
+                    }
+                    break;
+                case 'play':
+                    console.log('[Image Deck] Play button clicked');
+                    if (isAutoPlaying) {
+                        stopAutoPlay();
+                    } else {
+                        startAutoPlay();
+                    }
+                    break;
+                case 'info':
+                    console.log('[Image Deck] Info button clicked');
+                    openMetadataModal();
+                    break;
+                case 'next-chunk':
+                    console.log('[Image Deck] Next chunk button clicked');
+                    loadNextChunk();
+                    break;
+                default:
+                    console.log('[Image Deck] Unknown action:', action);
+            }
+        });
     });
 
     // Keyboard controls

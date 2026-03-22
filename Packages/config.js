@@ -1,3 +1,5 @@
+import { isMobile } from './utils.js';
+
 export const PLUGIN_NAME = 'image-deck';
 
 export async function getPluginConfig() {
@@ -21,10 +23,12 @@ export async function getPluginConfig() {
         if (!settings.transitionEffect || settings.transitionEffect === '') settings.transitionEffect = 'cards';
         if (settings.showProgressBar === undefined) settings.showProgressBar = true;
         if (settings.showCounter === undefined) settings.showCounter = true;
-        if (!settings.preloadImages || settings.preloadImages === 0) settings.preloadImages = isMobile ? 1 : 2;
-        if (!settings.swipeResistance || settings.swipeResistance === 0) settings.swipeResistance = 50;
+        if (!settings.preloadImages || settings.preloadImages === 0) settings.preloadImages = isMobile ? 1 : 1;
+        if (!settings.swipeResistance || settings.swipeResistance === 0) settings.swipeResistance = 80;
         if (!settings.effectDepth || settings.effectDepth === 0) settings.effectDepth = 150;
-
+		if (settings.chunkSize === undefined) settings.chunkSize = 30; // Smaller chunks for better responsiveness
+		if (settings.lazyLoadThreshold === undefined) settings.lazyLoadThreshold = 2; // Load 2 slides ahead/behind
+		
         // Visual effects defaults (flashier!)
         if (!settings.particleCount || settings.particleCount === 0) settings.particleCount = 80;
         if (!settings.particleSpeed || settings.particleSpeed === 0) settings.particleSpeed = 1.0;
@@ -112,6 +116,90 @@ export function injectDynamicStyles(settings) {
                 hsl(${ambientHue}, 70%, 65%),
                 hsl(${ambientHue + 30}, 70%, 65%)
             );
+        }
+        
+        /* Gallery cover styles */
+        .gallery-cover-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 20px auto;
+            max-width: 300px;
+        }
+        
+        .gallery-cover-title {
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 10px;
+            text-shadow: 0 0 5px rgba(0, 0, 0, 0.7);
+            padding: 5px 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 4px;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .gallery-cover-link {
+            display: inline-block;
+            max-width: 300px;
+            max-height: 500px; /* Increased height by ~200px */
+            aspect-ratio: 3 / 5; /* More rectangular shape */
+            border: 3px solid #6a5acd;
+            border-radius: 8px;
+            box-shadow: 0 0 15px rgba(106, 90, 205, 0.7);
+            overflow: hidden;
+            transition: all 0.3s ease;
+            width: 100%;
+        }
+        
+        .gallery-cover-link:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 25px rgba(106, 90, 205, 0.9);
+            border-color: #8a7bdb;
+        }
+        
+        .gallery-cover-link img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        
+        /* Mobile optimizations */
+        @media (max-width: 768px) {
+            .gallery-cover-container {
+                max-width: 200px;
+            }
+            
+            .gallery-cover-link {
+                max-width: 200px;
+                max-height: 350px;
+            }
+            
+            .gallery-cover-title {
+                font-size: 14px;
+                padding: 4px 8px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .gallery-cover-container {
+                max-width: 150px;
+            }
+            
+            .gallery-cover-link {
+                max-width: 150px;
+                max-height: 250px;
+            }
+            
+            .gallery-cover-title {
+                font-size: 12px;
+                padding: 3px 6px;
+            }
         }
     `;
 }

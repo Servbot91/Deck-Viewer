@@ -1,7 +1,7 @@
 // Particle system for visual candy
 let particleAnimationId = null;
 
-export function initParticles(canvas) {
+export function initParticles(canvas, pluginConfig) {
     if (!canvas) return;
     if (pluginConfig.particleCount === 0) return; // Disabled
 
