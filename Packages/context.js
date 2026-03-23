@@ -20,7 +20,7 @@ export function detectContext() {
         }
     }
 
-    // 3. IMPROVED: Handle /images page (with OR without search params)
+    // 3.Handle /images page (with OR without search params)
     if (path.startsWith('/images')) {
         const filters = parseUrlFilters(search);
         return {

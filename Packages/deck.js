@@ -2,6 +2,7 @@ import { getPluginConfig, injectDynamicStyles, PLUGIN_NAME } from './config.js';
 import { detectContext, fetchContextImages, getVisibleImages, getVisibleGalleryCovers } from './context.js';
 import { initSwiper } from './swiper.js';
 import { isMobile } from './utils.js';
+import { setupEventHandlers, setDeckActive } from './controls.js';
 
 let pluginConfig = null;
 let currentSwiper = null;
@@ -26,7 +27,6 @@ export async function openDeck() {
         chunkSize = 50;
         totalImageCount = 0;
         totalPages = 0;
-
         // Load config
         pluginConfig = await getPluginConfig();
         console.log('[Image Deck] Plugin config loaded:', pluginConfig);
@@ -43,7 +43,7 @@ if (window.location.pathname === '/galleries' && !detectedContext?.isGalleryList
     detectedContext = {
         type: 'galleries',
         isGalleryListing: true,
-        filter: parseUrlFilters(window.location.search) // This is the crucial part
+        filter: parseUrlFilters(window.location.search) 
     };
 }
 
@@ -60,7 +60,7 @@ const isListContext = contextInfo && (
     contextInfo.isGalleryListing || 
     contextInfo.type === 'images' || 
     contextInfo.isFilteredView ||
-    window.location.pathname.startsWith('/images') // Added this
+    window.location.pathname.startsWith('/images')
 );
 
         if (isListContext) {
@@ -91,13 +91,16 @@ const isListContext = contextInfo && (
         // 4. Create UI
         const container = createDeckUI();
         document.body.classList.add('image-deck-open');
-
+        const speedDisplay = container.querySelector('.speed-value');
+        if (speedDisplay && pluginConfig) {
+            speedDisplay.textContent = pluginConfig.autoPlayInterval;
+        }
         requestAnimationFrame(() => {
             container.classList.add('active');
         });
 
         // 5. Initialize Swiper 
-        // We pass checkAndLoadNextChunk into the update callback so it checks on every slide change
+        // Pass checkAndLoadNextChunk into the update callback so it checks on every slide change
         currentSwiper = initSwiper(
             container, 
             currentImages, 
@@ -118,11 +121,8 @@ const isListContext = contextInfo && (
         // Initial UI update
         updateUI(container);
 
-        // Setup event handlers
-        import('./controls.js').then(module => {
-            module.setupEventHandlers(container);
-        });
-        
+		setupEventHandlers(container);
+			
     } catch (error) {
         console.error('[Image Deck] Error opening deck:', error);
         alert('Error opening Image Deck: ' + error.message);
@@ -137,6 +137,8 @@ function createDeckUI() {
 
     const container = document.createElement('div');
     container.className = `image-deck-container${isMobile ? ' mobile-optimized' : ''}`;
+    
+    // Create UI without referencing pluginConfig in template
     container.innerHTML = `
         <div class="image-deck-ambient"></div>
         <div class="image-deck-topbar">
@@ -158,7 +160,7 @@ function createDeckUI() {
             <button class="image-deck-control-btn image-deck-info-btn" data-action="info" title="Image Info (I)">ℹ</button>
             <button class="image-deck-control-btn" data-action="next-chunk" title="Load Next Chunk">⏭️</button>
         </div>
-        <div class="image-deck-speed">Speed: ${pluginConfig.autoPlayInterval}ms</div>
+        <div class="image-deck-speed">Speed: <span class="speed-value">5000</span>ms</div>
         <div class="image-deck-metadata-modal">
             <div class="image-deck-metadata-content">
                 <div class="image-deck-metadata-header">
@@ -177,6 +179,7 @@ function createDeckUI() {
 
 // Update UI elements - debounced to prevent flicker
 	let uiUpdatePending = false;
+	
 function updateUI(container) {
     if (!currentSwiper || uiUpdatePending) return;
 
@@ -238,7 +241,6 @@ function checkAndLoadNextChunk() {
     const totalCurrentSlides = currentImages.length;
     
     // 1. Only trigger if we are in the last few slides
-    // 2. Only trigger if there actually ARE more pages to fetch
     if (currentIndex >= totalCurrentSlides - 3 && currentChunkPage < totalPages) {
         console.log('[Image Deck] Auto-loading next chunk...');
         loadNextChunk(); 
@@ -308,7 +310,6 @@ function restorePosition() {
 }
 
 // Load next chunk of images
-// Add this to your module-level variables at the top of the file
 let isChunkLoading = false; 
 
 export async function loadNextChunk() {
@@ -433,7 +434,14 @@ export async function loadNextChunk() {
 // Close the deck
 export function closeDeck() {
     stopAutoPlay();
-
+    setDeckActive(false); // Mark deck as inactive
+    
+    // Remove keyboard event listener
+    if (keyboardHandler) {
+        document.removeEventListener('keydown', keyboardHandler, true);
+        keyboardHandler = null;
+    }
+    
     const container = document.querySelector('.image-deck-container');
     if (container) {
         container.classList.remove('active');
@@ -446,6 +454,7 @@ export function closeDeck() {
     if (currentSwiper) {
         currentSwiper.destroy(true, true);
         currentSwiper = null;
+        window.currentSwiperInstance = null;
     }
 
     currentImages = [];

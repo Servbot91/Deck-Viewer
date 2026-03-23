@@ -2,6 +2,8 @@
 import { closeDeck, startAutoPlay, stopAutoPlay, loadNextChunk } from './deck.js';
 import { openMetadataModal, closeMetadataModal } from './metadata.js';
 
+let isDeckActive = false;
+
 // Fullscreen functionality
 function toggleFullscreen() {
     const container = document.querySelector('.image-deck-container');
@@ -18,12 +20,17 @@ function toggleFullscreen() {
 
 // Setup event handlers
 export function setupEventHandlers(container) {
+    // Set deck as active when handlers are set up
+    setDeckActive(true);
+    // Store reference to handler for cleanup
+    keyboardHandler = handleKeyboard;
     // Close button
     const closeBtn = container.querySelector('.image-deck-close');
     if (closeBtn) {
         closeBtn.addEventListener('click', closeDeck);
     }
-
+    // Keyboard controls - use capturing phase
+    document.addEventListener('keydown', handleKeyboard, true);
     // Fullscreen button
     const fullscreenBtn = container.querySelector('.image-deck-fullscreen');
     if (fullscreenBtn) {
@@ -36,14 +43,13 @@ export function setupEventHandlers(container) {
         metadataCloseBtn.addEventListener('click', closeMetadataModal);
     }
 
-// Control buttons
+    // Control buttons
     const controlButtons = container.querySelectorAll('.image-deck-control-btn');
     
     controlButtons.forEach(button => {
         button.addEventListener('click', (e) => {
             const action = button.dataset.action;
-            // CORRECTED: Fetch swiper from the global window object every time a button is clicked
-            const swiper = window.currentSwiperInstance; 
+            const swiper = window.currentSwiperInstance;
 
             if (!action) return;
 
@@ -58,7 +64,6 @@ export function setupEventHandlers(container) {
                 case 'next':
                     if (swiper) {
                         swiper.slideNext();
-                        // Use the imported loadNextChunk function
                         setTimeout(() => {
                             loadNextChunk();
                         }, 100);
@@ -87,13 +92,14 @@ export function setupEventHandlers(container) {
         });
     });
 
-// Keyboard controls
-    document.addEventListener('keydown', handleKeyboard);
-
-    // Swipe gestures logic (unchanged from your original)
+    // Keyboard controls - use capturing phase to intercept before other handlers
+    document.addEventListener('keydown', handleKeyboard, true);
+    // Swipe gestures logic
     setupSwipeGestures(container);
-	setupMouseWheel(container);
+    // Mouse wheel support
+    setupMouseWheel(container);
 }
+
 
 // Extracted swipe logic to keep setup clean
 function setupSwipeGestures(container) {
@@ -135,14 +141,14 @@ function setupSwipeGestures(container) {
     }, { passive: true });
 }
 
-// In controls.js, add this function to setup mousewheel handling
+
 function setupMouseWheel(container) {
     // Mouse wheel support - attach directly to the swiper element
     const swiperEl = container.querySelector('.image-deck-swiper');
     if (!swiperEl) return;
 
     swiperEl.addEventListener('wheel', (e) => {
-        // CORRECTED: Fetch swiper from the global window object every time
+        //Fetch swiper from the global window object every time
         const swiper = window.currentSwiperInstance;
         if (!swiper) return;
 
@@ -169,13 +175,29 @@ function setupMouseWheel(container) {
     }, { passive: false });
 }
 
+export function setDeckActive(active) {
+    isDeckActive = active;
+}
 
 // Keyboard handler
 function handleKeyboard(e) {
+    // Only handle keyboard events when deck is active
+    if (!isDeckActive) return;
+    
+    // Always prevent default for these keys when deck is active
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' ', 'Escape'].includes(e.key)) {
+        e.preventDefault();
+        e.stopPropagation(); // Stop event from bubbling up
+    }
+    
     const swiper = window.currentSwiperInstance;
-
+    
+    // Skip if typing in input fields
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-        if (e.key === 'Escape') closeMetadataModal();
+        if (e.key === 'Escape') {
+            closeMetadataModal();
+            return;
+        }
         return;
     }
 
@@ -190,6 +212,7 @@ function handleKeyboard(e) {
             break;
         case ' ':
             e.preventDefault();
+            e.stopPropagation();
             const playBtn = document.querySelector('[data-action="play"]');
             if (playBtn && playBtn.classList.contains('active')) {
                 stopAutoPlay();
@@ -200,6 +223,7 @@ function handleKeyboard(e) {
         case 'i':
         case 'I':
             e.preventDefault();
+            e.stopPropagation();
             const metadataModal = document.querySelector('.image-deck-metadata-modal');
             if (metadataModal && metadataModal.classList.contains('active')) {
                 closeMetadataModal();
@@ -207,14 +231,33 @@ function handleKeyboard(e) {
                 openMetadataModal();
             }
             break;
-        // ADDED: Arrow Key Support
+        // ARROW KEY SUPPORT
         case 'ArrowLeft':
-            if (swiper) swiper.slidePrev();
+            e.preventDefault();
+            e.stopPropagation();
+            if (swiper) {
+                swiper.slidePrev();
+            }
             break;
         case 'ArrowRight':
+            e.preventDefault();
+            e.stopPropagation();
             if (swiper) {
                 swiper.slideNext();
-                setTimeout(() => loadNextChunk(), 100);
+                // Trigger next chunk loading if needed
+                setTimeout(() => {
+                    if (window.currentSwiperInstance) {
+                        const currentIndex = window.currentSwiperInstance.activeIndex;
+                        const totalCurrentSlides = window.currentSwiperInstance.virtual ? 
+                            window.currentSwiperInstance.virtual.slides.length : 
+                            window.currentSwiperInstance.slides.length;
+                        const totalPagesLocal = totalPages || 1;
+                        
+                        if (currentIndex >= totalCurrentSlides - 3 && currentChunkPage < totalPagesLocal) {
+                            loadNextChunk();
+                        }
+                    }
+                }, 100);
             }
             break;
     }

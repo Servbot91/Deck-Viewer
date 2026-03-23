@@ -522,7 +522,6 @@
       swiperConfig.virtual = {
         slides: images.map((img) => getSlideTemplate(img, false)),
         cache: true,
-        // Re-enabled cache to prevent the "load nothing" refresh issue
         addSlidesBefore: 2,
         addSlidesAfter: 2,
         renderSlide: function(slideContent) {
@@ -895,10 +894,6 @@
   });
 
   // controls.js
-  var controls_exports = {};
-  __export(controls_exports, {
-    setupEventHandlers: () => setupEventHandlers
-  });
   function toggleFullscreen() {
     const container = document.querySelector(".image-deck-container");
     if (!container) return;
@@ -911,10 +906,13 @@
     }
   }
   function setupEventHandlers(container) {
+    setDeckActive(true);
+    keyboardHandler = handleKeyboard;
     const closeBtn = container.querySelector(".image-deck-close");
     if (closeBtn) {
       closeBtn.addEventListener("click", closeDeck);
     }
+    document.addEventListener("keydown", handleKeyboard, true);
     const fullscreenBtn = container.querySelector(".image-deck-fullscreen");
     if (fullscreenBtn) {
       fullscreenBtn.addEventListener("click", toggleFullscreen);
@@ -967,8 +965,9 @@
         }
       });
     });
-    document.addEventListener("keydown", handleKeyboard);
+    document.addEventListener("keydown", handleKeyboard, true);
     setupSwipeGestures(container);
+    setupMouseWheel(container);
   }
   function setupSwipeGestures(container) {
     let touchStartY = 0;
@@ -1004,10 +1003,40 @@
       touchDeltaY = 0;
     }, { passive: true });
   }
+  function setupMouseWheel(container) {
+    const swiperEl = container.querySelector(".image-deck-swiper");
+    if (!swiperEl) return;
+    swiperEl.addEventListener("wheel", (e) => {
+      const swiper = window.currentSwiperInstance;
+      if (!swiper) return;
+      e.preventDefault();
+      if (swiper.wheeling) return;
+      swiper.wheeling = true;
+      if (e.deltaY > 0) {
+        swiper.slideNext();
+      } else if (e.deltaY < 0) {
+        swiper.slidePrev();
+      }
+      setTimeout(() => {
+        if (swiper) swiper.wheeling = false;
+      }, 150);
+    }, { passive: false });
+  }
+  function setDeckActive(active) {
+    isDeckActive = active;
+  }
   function handleKeyboard(e) {
+    if (!isDeckActive) return;
+    if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " ", "Escape"].includes(e.key)) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     const swiper = window.currentSwiperInstance;
     if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") {
-      if (e.key === "Escape") closeMetadataModal();
+      if (e.key === "Escape") {
+        closeMetadataModal();
+        return;
+      }
       return;
     }
     switch (e.key) {
@@ -1021,6 +1050,7 @@
         break;
       case " ":
         e.preventDefault();
+        e.stopPropagation();
         const playBtn = document.querySelector('[data-action="play"]');
         if (playBtn && playBtn.classList.contains("active")) {
           stopAutoPlay();
@@ -1031,6 +1061,7 @@
       case "i":
       case "I":
         e.preventDefault();
+        e.stopPropagation();
         const metadataModal = document.querySelector(".image-deck-metadata-modal");
         if (metadataModal && metadataModal.classList.contains("active")) {
           closeMetadataModal();
@@ -1038,22 +1069,39 @@
           openMetadataModal();
         }
         break;
-      // ADDED: Arrow Key Support
+      // ARROW KEY SUPPORT
       case "ArrowLeft":
-        if (swiper) swiper.slidePrev();
+        e.preventDefault();
+        e.stopPropagation();
+        if (swiper) {
+          swiper.slidePrev();
+        }
         break;
       case "ArrowRight":
+        e.preventDefault();
+        e.stopPropagation();
         if (swiper) {
           swiper.slideNext();
-          setTimeout(() => loadNextChunk(), 100);
+          setTimeout(() => {
+            if (window.currentSwiperInstance) {
+              const currentIndex = window.currentSwiperInstance.activeIndex;
+              const totalCurrentSlides = window.currentSwiperInstance.virtual ? window.currentSwiperInstance.virtual.slides.length : window.currentSwiperInstance.slides.length;
+              const totalPagesLocal = totalPages || 1;
+              if (currentIndex >= totalCurrentSlides - 3 && currentChunkPage < totalPagesLocal) {
+                loadNextChunk();
+              }
+            }
+          }, 100);
         }
         break;
     }
   }
+  var isDeckActive;
   var init_controls = __esm({
     "controls.js"() {
       init_deck();
       init_metadata();
+      isDeckActive = false;
     }
   });
 
@@ -1070,10 +1118,10 @@
     console.log("[Image Deck] Opening deck...");
     console.log("[Image Deck] Current URL:", window.location.pathname);
     try {
-      currentChunkPage = 1;
+      currentChunkPage2 = 1;
       chunkSize = 50;
       totalImageCount = 0;
-      totalPages = 0;
+      totalPages2 = 0;
       pluginConfig = await getPluginConfig();
       console.log("[Image Deck] Plugin config loaded:", pluginConfig);
       injectDynamicStyles(pluginConfig);
@@ -1083,7 +1131,6 @@
           type: "galleries",
           isGalleryListing: true,
           filter: parseUrlFilters(window.location.search)
-          // This is the crucial part
         };
       }
       storedContextInfo = detectedContext;
@@ -1101,17 +1148,21 @@
       if (Array.isArray(imageResult)) {
         currentImages = imageResult;
         totalImageCount = imageResult.length;
-        totalPages = 1;
-        currentChunkPage = 1;
+        totalPages2 = 1;
+        currentChunkPage2 = 1;
       } else if (imageResult) {
         currentImages = imageResult.images || [];
         totalImageCount = imageResult.totalCount || 0;
-        totalPages = imageResult.totalPages || 1;
-        currentChunkPage = imageResult.currentPage || 1;
+        totalPages2 = imageResult.totalPages || 1;
+        currentChunkPage2 = imageResult.currentPage || 1;
       }
-      console.log(`[Image Deck] Opening with ${currentImages.length} items (chunk 1 of ${totalPages || 1})`);
+      console.log(`[Image Deck] Opening with ${currentImages.length} items (chunk 1 of ${totalPages2 || 1})`);
       const container = createDeckUI();
       document.body.classList.add("image-deck-open");
+      const speedDisplay = container.querySelector(".speed-value");
+      if (speedDisplay && pluginConfig) {
+        speedDisplay.textContent = pluginConfig.autoPlayInterval;
+      }
       requestAnimationFrame(() => {
         container.classList.add("active");
       });
@@ -1129,9 +1180,7 @@
       window.currentSwiperInstance = currentSwiper;
       restorePosition();
       updateUI(container);
-      Promise.resolve().then(() => (init_controls(), controls_exports)).then((module) => {
-        module.setupEventHandlers(container);
-      });
+      setupEventHandlers(container);
     } catch (error) {
       console.error("[Image Deck] Error opening deck:", error);
       alert("Error opening Image Deck: " + error.message);
@@ -1163,7 +1212,7 @@
             <button class="image-deck-control-btn image-deck-info-btn" data-action="info" title="Image Info (I)">\u2139</button>
             <button class="image-deck-control-btn" data-action="next-chunk" title="Load Next Chunk">\u23ED\uFE0F</button>
         </div>
-        <div class="image-deck-speed">Speed: ${pluginConfig.autoPlayInterval}ms</div>
+        <div class="image-deck-speed">Speed: <span class="speed-value">5000</span>ms</div>
         <div class="image-deck-metadata-modal">
             <div class="image-deck-metadata-content">
                 <div class="image-deck-metadata-header">
@@ -1202,7 +1251,7 @@
       }
       if (pluginConfig.showCounter) {
         const counter = container.querySelector(".image-deck-counter");
-        const chunkInfo = totalPages > 1 ? ` (chunk ${currentChunkPage}/${totalPages})` : "";
+        const chunkInfo = totalPages2 > 1 ? ` (chunk ${currentChunkPage2}/${totalPages2})` : "";
         if (counter) {
           counter.textContent = `${current} of ${actualTotal}${chunkInfo}`;
         }
@@ -1221,7 +1270,7 @@
     if (!currentSwiper || isChunkLoading) return;
     const currentIndex = currentSwiper.activeIndex;
     const totalCurrentSlides = currentImages.length;
-    if (currentIndex >= totalCurrentSlides - 3 && currentChunkPage < totalPages) {
+    if (currentIndex >= totalCurrentSlides - 3 && currentChunkPage2 < totalPages2) {
       console.log("[Image Deck] Auto-loading next chunk...");
       loadNextChunk();
     }
@@ -1281,7 +1330,7 @@
       console.log("[Image Deck] Load already in progress, skipping...");
       return;
     }
-    if (currentChunkPage >= totalPages && totalPages !== 0) {
+    if (currentChunkPage2 >= totalPages2 && totalPages2 !== 0) {
       console.log("[Image Deck] All chunks already loaded.");
       const loadingIndicator2 = document.querySelector(".image-deck-loading");
       if (loadingIndicator2) {
@@ -1301,12 +1350,12 @@
     }
     if (loadingIndicator) {
       loadingIndicator.style.display = "block";
-      loadingIndicator.textContent = `Loading chunk ${currentChunkPage + 1}...`;
+      loadingIndicator.textContent = `Loading chunk ${currentChunkPage2 + 1}...`;
     }
     try {
       const contextToUse = storedContextInfo || contextInfo || detectContext();
       if (!contextToUse) throw new Error("Could not detect context for fetching");
-      const nextPage = currentChunkPage + 1;
+      const nextPage = currentChunkPage2 + 1;
       const result = await fetchContextImages(contextToUse, nextPage, chunkSize);
       if (!result || !result.images || result.images.length === 0) {
         if (loadingIndicator) loadingIndicator.textContent = "No more items found";
@@ -1316,8 +1365,8 @@
         return;
       }
       currentImages.push(...result.images);
-      currentChunkPage = nextPage;
-      totalPages = result.totalPages || totalPages;
+      currentChunkPage2 = nextPage;
+      totalPages2 = result.totalPages || totalPages2;
       if (currentSwiper && currentSwiper.virtual) {
         const allSlides = currentImages.map((img) => {
           const fullSrc = img.paths.image;
@@ -1379,6 +1428,11 @@
   }
   function closeDeck() {
     stopAutoPlay();
+    setDeckActive(false);
+    if (keyboardHandler) {
+      document.removeEventListener("keydown", keyboardHandler, true);
+      keyboardHandler = null;
+    }
     const container = document.querySelector(".image-deck-container");
     if (container) {
       container.classList.remove("active");
@@ -1390,18 +1444,20 @@
     if (currentSwiper) {
       currentSwiper.destroy(true, true);
       currentSwiper = null;
+      window.currentSwiperInstance = null;
     }
     currentImages = [];
     contextInfo = null;
     loadingQueue = [];
   }
-  var pluginConfig, currentSwiper, currentImages, autoPlayInterval, isAutoPlaying, contextInfo, loadingQueue, currentChunkPage, chunkSize, totalImageCount, totalPages, storedContextInfo, uiUpdatePending, isChunkLoading;
+  var pluginConfig, currentSwiper, currentImages, autoPlayInterval, isAutoPlaying, contextInfo, loadingQueue, currentChunkPage2, chunkSize, totalImageCount, totalPages2, storedContextInfo, uiUpdatePending, isChunkLoading;
   var init_deck = __esm({
     "deck.js"() {
       init_config();
       init_context();
       init_swiper();
       init_utils();
+      init_controls();
       pluginConfig = null;
       currentSwiper = null;
       currentImages = [];
@@ -1409,10 +1465,10 @@
       isAutoPlaying = false;
       contextInfo = null;
       loadingQueue = [];
-      currentChunkPage = 1;
+      currentChunkPage2 = 1;
       chunkSize = 50;
       totalImageCount = 0;
-      totalPages = 0;
+      totalPages2 = 0;
       storedContextInfo = null;
       uiUpdatePending = false;
       isChunkLoading = false;

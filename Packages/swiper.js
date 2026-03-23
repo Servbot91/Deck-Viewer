@@ -1,6 +1,3 @@
-// Import Swiper if needed
-// import Swiper from 'swiper/bundle';
-
 // Get effect-specific Swiper options - OPTIMIZED
 export function getEffectOptions(effect, pluginConfig) {
     const depth = pluginConfig.effectDepth;
@@ -113,7 +110,7 @@ const swiperConfig = {
         console.log('[Image Deck] Using virtual slides for performance');
         swiperConfig.virtual = {
             slides: images.map(img => getSlideTemplate(img, false)),
-            cache: true, // Re-enabled cache to prevent the "load nothing" refresh issue
+            cache: true, 
             addSlidesBefore: 2,
             addSlidesAfter: 2,
             renderSlide: function (slideContent) {
