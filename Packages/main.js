@@ -1,11 +1,11 @@
 import { initialize } from './ui.js';
 import './styles.css';
 
-// Wait for page load
+// Initialize when DOM is ready
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initialize);
 } else {
-    setTimeout(initialize, 500);
+    initialize();
 }
 
 // Track last URL to detect changes
@@ -36,5 +36,15 @@ setInterval(() => {
 
 function handleNavigation() {
     lastUrl = location.href;
-    // Close deck and recreate button handled in ui.js
+    // Remove any existing image deck button
+    const existingButton = document.querySelector('.image-deck-launch-btn');
+    if (existingButton) {
+        existingButton.remove();
+    }
+    // Remove any existing image deck container
+    const existingDeck = document.querySelector('.image-deck-container');
+    if (existingDeck) {
+        existingDeck.remove();
+        document.body.classList.remove('image-deck-open');
+    }
 }
