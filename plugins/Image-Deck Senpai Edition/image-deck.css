@@ -296,6 +296,24 @@
     overflow: visible !important;
 }
 
+/* Cards effect - Make background cards nearly invisible */
+.swiper-cards .swiper-slide:not(.swiper-slide-active) {
+    /* Adjust opacity: 0.05 is almost gone, 0.15 is a faint ghost */
+    opacity: 0.55 !important; 
+    
+    /* Optional: add a slight blur to further separate focus */
+    filter: blur(4px) brightness(0.5);
+    
+    /* Ensure smooth fading when sliding */
+    transition: opacity 0.4s ease, filter 0.4s ease;
+}
+
+/* Ensure the active slide is always fully visible */
+.swiper-cards .swiper-slide-active {
+    opacity: 1 !important;
+    filter: blur(0) brightness(1);
+}
+
 .swiper-cards .swiper-slide {
     border-radius: 12px;
     overflow: hidden;
@@ -335,8 +353,8 @@
     background: rgba(0, 0, 0, 0.98) !important; /* Nearly solid for performance */
 }
 
-.mobile-optimized .swiper-slide img {
-    filter: none !important; /* Remove drop-shadow on mobile */
+.mobile-optimized .swiper-cards .swiper-slide:not(.swiper-slide-active) {
+    filter: none !important; /* Remove blur on mobile, keep just the opacity */
 }
 
 /* Mobile layout adjustments */
