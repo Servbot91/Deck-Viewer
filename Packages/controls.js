@@ -92,6 +92,7 @@ export function setupEventHandlers(container) {
 
     // Swipe gestures logic (unchanged from your original)
     setupSwipeGestures(container);
+	setupMouseWheel(container);
 }
 
 // Extracted swipe logic to keep setup clean
@@ -133,6 +134,41 @@ function setupSwipeGestures(container) {
         touchDeltaY = 0;
     }, { passive: true });
 }
+
+// In controls.js, add this function to setup mousewheel handling
+function setupMouseWheel(container) {
+    // Mouse wheel support - attach directly to the swiper element
+    const swiperEl = container.querySelector('.image-deck-swiper');
+    if (!swiperEl) return;
+
+    swiperEl.addEventListener('wheel', (e) => {
+        // CORRECTED: Fetch swiper from the global window object every time
+        const swiper = window.currentSwiperInstance;
+        if (!swiper) return;
+
+        // Prevent default scrolling behavior
+        e.preventDefault();
+        
+        // Debounce rapid wheel events
+        if (swiper.wheeling) return;
+        swiper.wheeling = true;
+        
+        // Determine scroll direction
+        if (e.deltaY > 0) {
+            // Scroll down - next slide
+            swiper.slideNext();
+        } else if (e.deltaY < 0) {
+            // Scroll up - prev slide
+            swiper.slidePrev();
+        }
+        
+        // Reset wheeling flag after a short delay
+        setTimeout(() => {
+            if (swiper) swiper.wheeling = false;
+        }, 150);
+    }, { passive: false });
+}
+
 
 // Keyboard handler
 function handleKeyboard(e) {

@@ -69,7 +69,7 @@ export function initSwiper(container, images, pluginConfig, updateUICallback, sa
     const effectOptions = getEffectOptions(pluginConfig.transitionEffect, pluginConfig);
 
     // Swiper configuration
-    const swiperConfig = {
+const swiperConfig = {
         effect: pluginConfig.transitionEffect,
         grabCursor: true,
         centeredSlides: true,
@@ -79,6 +79,7 @@ export function initSwiper(container, images, pluginConfig, updateUICallback, sa
         watchSlidesProgress: true,
         preloadImages: false,
         keyboard: { enabled: true, onlyInViewport: false },
+        
         loop: contextInfo?.isSingleGallery ? true : false,
         loopAdditionalSlides: 2,
         ...effectOptions
