@@ -66,7 +66,7 @@ export function createLaunchButton() {
                 role="img">
                 <path d="${svgPath}"/>
             </svg>
-            <span>Image Deck SE</span>
+            <span>Deck Viewer</span>
         </a>
     `;
 

@@ -66,18 +66,33 @@ export function detectContext() {
 // Parse URL filter parameters
 function parseUrlFilters(search) {
     const params = new URLSearchParams(search);
-    const filterParams = [];
-    
-    // Get all 'c' parameters (filters)
-    for (const [key, value] of params.entries()) {
-        if (key === 'c') {
-            filterParams.push(value);
+    const cParam = params.get('c');
+    let parsedFilter = {};
+
+    if (cParam) {
+        try {
+            // Decodes Stash's (key:value) format to JSON {key:value}
+            const jsonString = cParam
+                .replace(/\(/g, '{')
+                .replace(/\)/g, '}')
+                .replace(/"items":/g, '"value":');
+
+            const parsed = JSON.parse(jsonString);
+
+            // If we have a valid filter type (e.g., "performers")
+            if (parsed.type && parsed.value) {
+                parsedFilter[parsed.type] = {
+                    value: parsed.value.value ? parsed.value.value.map(i => i.id) : [],
+                    modifier: parsed.modifier || "INCLUDES"
+                };
+            }
+        } catch (e) {
+            console.error('[Image Deck] Filter parse error:', e);
         }
     }
-    
-    // Parse sorting and pagination parameters
+
     return {
-        rawFilters: filterParams,
+        ...parsedFilter, // Spread the filters (e.g., performers: {...})
         sortBy: params.get('sortby') || 'created_at',
         sortDir: params.get('sortdir') || 'desc',
         perPage: parseInt(params.get('perPage')) || 40
@@ -154,15 +169,12 @@ export function getVisibleGalleryCovers() {
     });
 
     return galleries;
-}
-export async function fetchContextImages(context, page = 1, perPage = 50) {
+}export async function fetchContextImages(context, page = 1, perPage = 50) {
     const { type, id, filter, isSingleGallery, isGalleryListing } = context;
-    let query = '';
-    let variables = {};
-    
-    // Determine if we are looking for Gallery Objects or Image Objects
     const isFetchingGalleries = isGalleryListing || (type === 'galleries' && !isSingleGallery);
 
+    // 1. Determine Query
+    let query = '';
     if (isFetchingGalleries) {
         query = `query FindGalleries($filter: FindFilterType!, $gallery_filter: GalleryFilterType) {
             findGalleries(filter: $filter, gallery_filter: $gallery_filter) {
@@ -172,18 +184,7 @@ export async function fetchContextImages(context, page = 1, perPage = 50) {
                 }
             }
         }`;
-        
-        variables = {
-            filter: { 
-                per_page: perPage, 
-                page: page, 
-                sort: filter?.sortBy || "created_at", 
-                direction: (filter?.sortDir || "desc").toUpperCase() 
-            },
-            gallery_filter: filter?.gallery_filter || {}
-        };
     } else {
-        // Fetching standard images (or images inside a single gallery)
         query = `query FindImages($filter: FindFilterType!, $image_filter: ImageFilterType) {
             findImages(filter: $filter, image_filter: $image_filter) {
                 count
@@ -192,41 +193,43 @@ export async function fetchContextImages(context, page = 1, perPage = 50) {
                 }
             }
         }`;
+    }
 
-        // Construct the image filter
-        let activeImageFilter = {};
+    // 2. Build the active filter object
+    const allowedFields = [
+        'tags', 'performers', 'studios', 'markers', 'galleries', 
+        'pht_path', 'rating', 'organized', 'is_missing'
+    ];
 
-	if (isSingleGallery && id) {
-			activeImageFilter = { galleries: { value: [id], modifier: "INCLUDES" } };
-		} else if (filter) {
-			// --- CRITICAL CLEANUP START ---
-			// Define EXACTLY which fields the GraphQL ImageFilterType allows.
-			// If a field isn't in this list, we don't send it.
-			const allowedFields = [
-				'tags', 'performers', 'studios', 'markers', 'galleries', 
-				'pht_path', 'rating', 'organized', 'is_missing'
-			];
+    let activeFilter = {};
+    if (isSingleGallery && id) {
+        activeFilter = { galleries: { value: [id], modifier: "INCLUDES" } };
+    } else if (filter) {
+        allowedFields.forEach(field => {
+            if (filter[field]) {
+                activeFilter[field] = filter[field];
+            }
+        });
+    }
 
-			activeImageFilter = {};
-			allowedFields.forEach(field => {
-				if (filter[field]) {
-					activeImageFilter[field] = filter[field];
-				}
-			});
-			// --- CRITICAL CLEANUP END ---
-		}
-
-    variables = {
+    // 3. Prepare GraphQL Variables
+    const variables = {
         filter: { 
             per_page: perPage, 
             page: page, 
             sort: filter?.sortBy || "created_at", 
             direction: (filter?.sortDir || "desc").toUpperCase() 
-        },
-        image_filter: activeImageFilter
+        }
     };
-}
 
+    // Assign to the correct GraphQL key based on context
+    if (isFetchingGalleries) {
+        variables.gallery_filter = activeFilter;
+    } else {
+        variables.image_filter = activeFilter;
+    }
+
+    // 4. Execute Fetch
     try {
         const response = await fetch('/graphql', {
             method: 'POST',
