@@ -14,52 +14,50 @@
     const path = window.location.pathname;
     const hash = window.location.hash;
     const search = window.location.search;
-    const isImagesPage = path === "/images" || path === "/images/";
     const imageIdMatch = path.match(/^\/images\/(\d+)$/);
     if (imageIdMatch) {
-      return {
-        type: "images",
-        id: imageIdMatch[1],
-        hash,
-        isSingleImage: true
-      };
+      return { type: "images", id: imageIdMatch[1], hash, isSingleImage: true };
     }
-    const isGalleriesPage = path === "/galleries" || path === "/galleries/";
-    const galleryIdMatch = path.match(/^\/galleries\/(\d+)(\?.*)?$/);
-    if (galleryIdMatch) {
-      return {
-        type: "galleries",
-        id: galleryIdMatch[1],
-        hash,
-        isSingleGallery: true
-      };
+    if (path.startsWith("/galleries")) {
+      const galleryIdMatch = path.match(/^\/galleries\/(\d+)/);
+      if (galleryIdMatch) {
+        return { type: "galleries", id: galleryIdMatch[1], hash, isSingleGallery: true };
+      } else {
+        const filters = parseUrlFilters(search);
+        return { type: "galleries", isGalleryListing: true, filter: filters, hash };
+      }
     }
-    const idMatch = path.match(/\/(\w+)\/(\d+)/);
-    const isImagesContext = hash.includes("images") || document.querySelector(".nav-tabs .active")?.textContent?.includes("Images");
-    if (isImagesPage && search && search.includes("c=")) {
+    if (path.startsWith("/images")) {
       const filters = parseUrlFilters(search);
       return {
         type: "images",
-        id: null,
-        hash,
-        isFilteredView: true,
+        isFilteredView: !!search,
+        // true if there are any search params
+        isGeneralListing: !search,
+        // true if it's just the base /images page
         filter: filters,
-        isGeneralListing: false
+        hash
       };
     }
+    const idMatch = path.match(/\/(\w+)\/(\d+)/);
     if (idMatch) {
       const [, type, id] = idMatch;
-      if (!isImagesContext && type !== "galleries") {
-        return null;
+      const isImagesTab = hash.includes("images") || document.querySelector(".nav-tabs .active")?.textContent?.includes("Images");
+      if (isImagesTab || type === "galleries") {
+        const filter = {};
+        if (type === "performers") filter.performers = { value: [id], modifier: "INCLUDES" };
+        if (type === "tags") filter.tags = { value: [id], modifier: "INCLUDES" };
+        if (type === "studios") filter.studios = { value: [id], modifier: "INCLUDES" };
+        return { type, id, filter, hash };
       }
-      return { type, id, hash };
     }
     if (document.querySelectorAll('img[src*="/image/"]').length > 0) {
       return {
         type: "images",
-        id: null,
-        hash,
-        isGeneralListing: true
+        isGeneralListing: true,
+        filter: parseUrlFilters(search),
+        // Still try to grab any sort/direction params
+        hash
       };
     }
     return null;
@@ -99,248 +97,17 @@
     });
     return images;
   }
-  function getVisibleGalleryCovers() {
-    const galleries = [];
-    const galleryGrid = document.querySelector('.main-content, [role="main"]') || document.body;
-    const galleryElements = galleryGrid.querySelectorAll(".gallery-card, .card");
-    galleryElements.forEach((card, index) => {
-      const coverImg = card.querySelector(".gallery-cover img, img");
-      if (coverImg && coverImg.src) {
-        let id = `gallery_${index}`;
-        let url = null;
-        const link = card.querySelector('a[href*="/galleries/"]');
-        if (link) {
-          const idMatch = link.href.match(/\/galleries\/(\d+)/);
-          if (idMatch) {
-            id = idMatch[1];
-            url = link.href;
-          }
-        }
-        galleries.push({
-          id,
-          title: card.querySelector(".card-title, h5, h6")?.textContent?.trim() || `Gallery ${index + 1}`,
-          paths: {
-            image: coverImg.src
-          },
-          url
-          // Add the gallery URL
-        });
-      }
-    });
-    return galleries;
-  }
   async function fetchContextImages(context, page = 1, perPage = 50) {
-    const { type, id, filter, isFilteredView, isGeneralListing, isSingleImage, isSingleGallery } = context;
+    const { type, id, filter, isSingleGallery, isGalleryListing } = context;
     let query = "";
     let variables = {};
-    if (isSingleImage && id) {
-      const query2 = `query FindImage($id: ID!) {
-            findImage(id: $id) {
-                id
-                title
-                paths {
-                    thumbnail
-                    image
-                }
-            }
-        }`;
-      try {
-        const response = await fetch("/graphql", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: query2, variables: { id } })
-        });
-        const data = await response.json();
-        const image = data?.data?.findImage;
-        if (image) {
-          return {
-            images: [image],
-            totalCount: 1,
-            currentPage: 1,
-            totalPages: 1,
-            hasNextPage: false,
-            hasPreviousPage: false
-          };
-        }
-      } catch (error) {
-        console.error("[Image Deck] Error fetching single image:", error);
-      }
-      return {
-        images: [],
-        totalCount: 0,
-        currentPage: 1,
-        totalPages: 0,
-        hasNextPage: false,
-        hasPreviousPage: false
-      };
-    }
-    if (isFilteredView && filter) {
-      query = `query FindImages($filter: FindFilterType!, $image_filter: ImageFilterType!) {
-            findImages(filter: $filter, image_filter: $image_filter) {
+    const isFetchingGalleries = isGalleryListing || type === "galleries" && !isSingleGallery;
+    if (isFetchingGalleries) {
+      query = `query FindGalleries($filter: FindFilterType!, $gallery_filter: GalleryFilterType) {
+            findGalleries(filter: $filter, gallery_filter: $gallery_filter) {
                 count
-                images {
-                    id
-                    title
-                    paths {
-                        thumbnail
-                        image
-                    }
-                }
-            }
-        }`;
-      let imageFilter = {};
-      if (filter.rawFilters) {
-        filter.rawFilters.forEach((filterStr) => {
-          try {
-            const decoded = decodeURIComponent(filterStr);
-            let jsonStr = decoded.replace(/\(/g, "{").replace(/\)/g, "}").replace(/\\+"/g, '"').replace(/^"(.*)"$/, "$1");
-            jsonStr = jsonStr.replace(/([^\\])"/g, '$1\\"').replace(/\\"/g, '"');
-            const filterObj = JSON.parse(jsonStr);
-            if (filterObj.type === "tags" && filterObj.value) {
-              const tagFilter = {};
-              if (filterObj.value.items && filterObj.value.items.length > 0) {
-                tagFilter.value = filterObj.value.items.map((item) => item.id);
-                tagFilter.modifier = filterObj.modifier || "INCLUDES_ALL";
-              }
-              if (filterObj.value.excluded && filterObj.value.excluded.length > 0) {
-                if (!tagFilter.value) {
-                  tagFilter.value = [];
-                }
-                tagFilter.value.push(...filterObj.value.excluded.map((item) => item.id));
-                if (!tagFilter.modifier || tagFilter.modifier === "INCLUDES_ALL") {
-                  tagFilter.modifier = "EXCLUDES";
-                }
-              }
-              if (tagFilter.value && tagFilter.value.length > 0) {
-                imageFilter.tags = tagFilter;
-              }
-            } else if (filterObj.type === "performers" && filterObj.value) {
-              if (filterObj.value.items && filterObj.value.items.length > 0) {
-                imageFilter.performers = {
-                  value: filterObj.value.items.map((item) => item.id),
-                  modifier: filterObj.modifier || "INCLUDES_ALL"
-                };
-              }
-            } else if (filterObj.type === "file_count" && filterObj.value) {
-              imageFilter.file_count = {
-                value: filterObj.value.value,
-                modifier: filterObj.modifier || "GREATER_THAN"
-              };
-            }
-          } catch (e) {
-            console.error("[Image Deck] Error parsing filter:", filterStr, e);
-          }
-        });
-      }
-      variables = {
-        filter: {
-          per_page: filter.perPage || perPage,
-          page,
-          sort: filter.sortBy || "created_at",
-          direction: (filter.sortDir || "desc").toUpperCase()
-        },
-        image_filter: imageFilter
-      };
-    } else if (type && id) {
-      switch (type) {
-        case "performers":
-          query = `query FindImages($filter: FindFilterType!, $image_filter: ImageFilterType!) {
-                    findImages(filter: $filter, image_filter: $image_filter) {
-                        count
-                        images {
-                            id
-                            title
-                            paths {
-                                thumbnail
-                                image
-                            }
-                        }
-                    }
-                }`;
-          variables = {
-            filter: { per_page: perPage, page, sort: "random" },
-            image_filter: { performers: { value: [id], modifier: "INCLUDES" } }
-          };
-          break;
-        case "tags":
-          query = `query FindImages($filter: FindFilterType!, $image_filter: ImageFilterType!) {
-                    findImages(filter: $filter, image_filter: $image_filter) {
-                        count
-                        images {
-                            id
-                            title
-                            paths {
-                                thumbnail
-                                image
-                            }
-                        }
-                    }
-                }`;
-          variables = {
-            filter: { per_page: perPage, page, sort: "random" },
-            image_filter: { tags: { value: [id], modifier: "INCLUDES" } }
-          };
-          break;
-        case "galleries":
-          if (context && context.isSingleGallery) {
-            query = `query FindImages($filter: FindFilterType!, $image_filter: ImageFilterType!) {
-					findImages(filter: $filter, image_filter: $image_filter) {
-						count
-						images {
-							id
-							title
-							paths {
-								thumbnail
-								image
-							}
-						}
-					}
-				}`;
-            variables = {
-              filter: { per_page: perPage, page, sort: "created_at", direction: "ASC" },
-              image_filter: { galleries: { value: [id], modifier: "INCLUDES" } }
-            };
-            console.log("[Image Deck] Fetching images for gallery ID:", id, "Variables:", variables);
-          } else {
-            query = `query FindGalleries($filter: FindFilterType!) {
-					findGalleries(filter: $filter) {
-						count
-						galleries {
-							id
-							title
-							cover {
-								paths {
-									thumbnail
-									image
-								}
-							}
-						}
-					}
-				}`;
-            variables = {
-              filter: {
-                per_page: perPage,
-                page,
-                sort: "created_at",
-                direction: "DESC"
-              }
-            };
-          }
-          break;
-        default:
-          return getVisibleImages();
-      }
-    } else if (isGeneralListing) {
-      query = `query FindImages($filter: FindFilterType!) {
-            findImages(filter: $filter) {
-                count
-                images {
-                    id
-                    title
-                    paths {
-                        thumbnail
-                        image
-                    }
+                galleries {
+                    id title cover { paths { thumbnail image } }
                 }
             }
         }`;
@@ -348,12 +115,51 @@
         filter: {
           per_page: perPage,
           page,
-          sort: "created_at",
-          direction: "DESC"
-        }
+          sort: filter?.sortBy || "created_at",
+          direction: (filter?.sortDir || "desc").toUpperCase()
+        },
+        gallery_filter: filter?.gallery_filter || {}
       };
     } else {
-      return getVisibleImages();
+      query = `query FindImages($filter: FindFilterType!, $image_filter: ImageFilterType) {
+            findImages(filter: $filter, image_filter: $image_filter) {
+                count
+                images {
+                    id title paths { thumbnail image }
+                }
+            }
+        }`;
+      let activeImageFilter = {};
+      if (isSingleGallery && id) {
+        activeImageFilter = { galleries: { value: [id], modifier: "INCLUDES" } };
+      } else if (filter) {
+        const allowedFields = [
+          "tags",
+          "performers",
+          "studios",
+          "markers",
+          "galleries",
+          "pht_path",
+          "rating",
+          "organized",
+          "is_missing"
+        ];
+        activeImageFilter = {};
+        allowedFields.forEach((field) => {
+          if (filter[field]) {
+            activeImageFilter[field] = filter[field];
+          }
+        });
+      }
+      variables = {
+        filter: {
+          per_page: perPage,
+          page,
+          sort: filter?.sortBy || "created_at",
+          direction: (filter?.sortDir || "desc").toUpperCase()
+        },
+        image_filter: activeImageFilter
+      };
     }
     try {
       const response = await fetch("/graphql", {
@@ -361,63 +167,49 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query, variables })
       });
-      const responseText = await response.text();
-      console.log("[Image Deck] GraphQL Response Text:", responseText);
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch (parseError) {
-        console.error("[Image Deck] Failed to parse GraphQL response as JSON:", parseError);
-        console.error("[Image Deck] Raw response:", responseText);
-        throw new Error("Invalid GraphQL response format");
-      }
+      const data = await response.json();
       if (data.errors) {
         console.error("[Image Deck] GraphQL Errors:", data.errors);
-        throw new Error(`GraphQL Error: ${data.errors.map((e) => e.message).join(", ")}`);
+        throw new Error(data.errors[0].message);
       }
-      let images = [];
+      let normalizedImages = [];
       let totalCount = 0;
-      if (type === "galleries" || context && context.type === "galleries") {
-        if (context && context.isSingleGallery) {
-          images = data?.data?.findImages?.images || [];
-          totalCount = data?.data?.findImages?.count || images.length;
-          totalCount = images.length;
-          console.log("[Image Deck] Fetched gallery images:", images);
-        } else {
-          const galleries = data?.data?.findGalleries?.galleries || [];
-          images = galleries.map((gallery) => ({
-            id: gallery.id,
-            title: gallery.title,
-            paths: {
-              image: gallery.cover?.paths?.image || gallery.cover?.paths?.thumbnail || ""
-            }
-          })).filter((g) => g.paths.image);
-          totalCount = data?.data?.findGalleries?.count || images.length;
-        }
+      if (isFetchingGalleries) {
+        const result = data?.data?.findGalleries;
+        totalCount = result?.count || 0;
+        normalizedImages = (result?.galleries || []).map((g) => ({
+          id: g.id,
+          title: g.title,
+          isGallery: true,
+          type: "gallery",
+          paths: { image: g.cover?.paths?.image || g.cover?.paths?.thumbnail || "" },
+          url: `/galleries/${g.id}`
+        }));
       } else {
-        images = data?.data?.findImages?.images || [];
-        totalCount = data?.data?.findImages?.count || images.length;
-        if (page === 1 && totalCount > perPage) {
-          console.log(`[Image Deck] Total images: ${totalCount}, loading first ${perPage} for performance`);
-        }
+        const result = data?.data?.findImages;
+        totalCount = result?.count || 0;
+        normalizedImages = (result?.images || []).map((img) => ({
+          ...img,
+          isGallery: false,
+          type: "image"
+        }));
       }
+      const calculatedTotalPages = Math.ceil(totalCount / perPage);
       return {
-        images,
+        images: normalizedImages,
         totalCount,
         currentPage: page,
-        totalPages: Math.ceil(totalCount / perPage),
-        hasNextPage: page < Math.ceil(totalCount / perPage),
-        hasPreviousPage: page > 1
+        totalPages: calculatedTotalPages,
+        hasNextPage: page < calculatedTotalPages
       };
     } catch (error) {
-      console.error(`[Image Deck] Error fetching images:`, error);
+      console.error(`[Image Deck] Fetch Error:`, error);
       return {
         images: [],
         totalCount: 0,
         currentPage: 1,
         totalPages: 0,
-        hasNextPage: false,
-        hasPreviousPage: false
+        hasNextPage: false
       };
     }
   }
@@ -1178,37 +970,30 @@
       metadataCloseBtn.addEventListener("click", closeMetadataModal);
     }
     const controlButtons = container.querySelectorAll(".image-deck-control-btn");
-    console.log("[Image Deck] Found control buttons:", controlButtons.length);
     controlButtons.forEach((button) => {
       button.addEventListener("click", (e) => {
         const action = button.dataset.action;
-        console.log("[Image Deck] Button clicked:", action);
+        const swiper = window.currentSwiperInstance;
         if (!action) return;
         switch (action) {
           case "prev":
-            console.log("[Image Deck] Previous button clicked");
-            const swiper = window.currentSwiperInstance;
             if (swiper) {
               swiper.slidePrev();
             } else {
-              console.log("[Image Deck] No swiper instance found");
+              console.error("[Image Deck] Prev failed: window.currentSwiperInstance is not defined");
             }
             break;
           case "next":
-            console.log("[Image Deck] Next button clicked");
             if (swiper) {
               swiper.slideNext();
               setTimeout(() => {
-                if (typeof checkAndLoadNextChunk === "function") {
-                  checkAndLoadNextChunk();
-                }
+                loadNextChunk();
               }, 100);
             } else {
-              console.log("[Image Deck] No swiper instance found");
+              console.error("[Image Deck] Next failed: window.currentSwiperInstance is not defined");
             }
             break;
           case "play":
-            console.log("[Image Deck] Play button clicked");
             const playBtn = document.querySelector('[data-action="play"]');
             const isAutoPlaying2 = playBtn && playBtn.classList.contains("active");
             if (isAutoPlaying2) {
@@ -1218,11 +1003,9 @@
             }
             break;
           case "info":
-            console.log("[Image Deck] Info button clicked");
             openMetadataModal();
             break;
           case "next-chunk":
-            console.log("[Image Deck] Next chunk button clicked");
             loadNextChunk();
             break;
           default:
@@ -1231,10 +1014,14 @@
       });
     });
     document.addEventListener("keydown", handleKeyboard);
+    setupSwipeGestures(container);
+  }
+  function setupSwipeGestures(container) {
     let touchStartY = 0;
     let touchDeltaY = 0;
     let rafId = null;
     const swiperEl = container.querySelector(".image-deck-swiper");
+    if (!swiperEl) return;
     swiperEl.addEventListener("touchstart", (e) => {
       if (e.target.closest(".image-deck-metadata-modal")) return;
       touchStartY = e.touches[0].clientY;
@@ -1248,42 +1035,25 @@
           container.style.transform = `translateY(${touchDeltaY * 0.3}px)`;
           container.style.opacity = Math.max(0.3, 1 - touchDeltaY / 500);
         });
-      } else if (touchDeltaY < -50) {
-        if (rafId) cancelAnimationFrame(rafId);
-        rafId = requestAnimationFrame(() => {
-          const modal = container.querySelector(".image-deck-metadata-modal");
-          if (modal && !modal.classList.contains("active")) {
-            modal.style.transform = `translateY(${Math.max(touchDeltaY, -200)}px)`;
-            modal.style.opacity = Math.min(Math.abs(touchDeltaY) / 150, 1);
-          }
-        });
       }
     }, { passive: true });
     swiperEl.addEventListener("touchend", () => {
       if (rafId) cancelAnimationFrame(rafId);
       if (touchDeltaY > 150) {
         closeDeck();
-      } else if (touchDeltaY < -100) {
-        openMetadataModal();
       } else {
         requestAnimationFrame(() => {
           container.style.transform = "";
           container.style.opacity = "";
-          const modal = container.querySelector(".image-deck-metadata-modal");
-          if (modal && !modal.classList.contains("active")) {
-            modal.style.transform = "";
-            modal.style.opacity = "";
-          }
         });
       }
       touchDeltaY = 0;
     }, { passive: true });
   }
   function handleKeyboard(e) {
+    const swiper = window.currentSwiperInstance;
     if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") {
-      if (e.key === "Escape") {
-        closeMetadataModal();
-      }
+      if (e.key === "Escape") closeMetadataModal();
       return;
     }
     switch (e.key) {
@@ -1298,8 +1068,7 @@
       case " ":
         e.preventDefault();
         const playBtn = document.querySelector('[data-action="play"]');
-        const isAutoPlaying2 = playBtn && playBtn.classList.contains("active");
-        if (isAutoPlaying2) {
+        if (playBtn && playBtn.classList.contains("active")) {
           stopAutoPlay();
         } else {
           startAutoPlay();
@@ -1313,6 +1082,16 @@
           closeMetadataModal();
         } else {
           openMetadataModal();
+        }
+        break;
+      // ADDED: Arrow Key Support
+      case "ArrowLeft":
+        if (swiper) swiper.slidePrev();
+        break;
+      case "ArrowRight":
+        if (swiper) {
+          swiper.slideNext();
+          setTimeout(() => loadNextChunk(), 100);
         }
         break;
     }
@@ -1344,42 +1123,32 @@
       pluginConfig = await getPluginConfig();
       console.log("[Image Deck] Plugin config loaded:", pluginConfig);
       injectDynamicStyles(pluginConfig);
-      const detectedContext = detectContext();
-      storedContextInfo = detectedContext;
-      contextInfo = detectedContext;
-      console.log("[Image Deck] Context detected:", storedContextInfo);
-      if ((!detectedContext || detectedContext.isGalleryListing) && window.location.pathname.startsWith("/galleries")) {
+      let detectedContext = detectContext();
+      if (window.location.pathname.startsWith("/galleries")) {
         const galleryIdMatch = window.location.pathname.match(/^\/galleries\/(\d+)/);
         if (galleryIdMatch) {
-          const manualContext = {
+          detectedContext = {
             type: "galleries",
             id: galleryIdMatch[1],
             isSingleGallery: true
           };
-          storedContextInfo = manualContext;
-          contextInfo = manualContext;
-          console.log("[Image Deck] Manual context override created:", manualContext);
+        } else {
+          detectedContext = {
+            type: "galleries-listing",
+            isGalleryListing: true,
+            queryParams: window.location.search
+          };
         }
       }
+      storedContextInfo = detectedContext;
+      contextInfo = detectedContext;
+      console.log("[Image Deck] Context assigned:", contextInfo);
       let imageResult;
-      if (storedContextInfo) {
-        console.log("[Image Deck] Using context-based fetching");
-        imageResult = await fetchContextImages(storedContextInfo, 1, chunkSize);
-      } else if (window.location.pathname.startsWith("/galleries")) {
-        console.log("[Image Deck] Checking gallery page type");
-        const galleryIdMatch = window.location.pathname.match(/^\/galleries\/(\d+)/);
-        if (galleryIdMatch) {
-          console.log("[Image Deck] Single gallery page detected");
-          const galleryContext = {
-            type: "galleries",
-            id: galleryIdMatch[1],
-            isSingleGallery: true
-          };
-          imageResult = await fetchContextImages(galleryContext, 1, chunkSize);
-        } else {
-          console.log("[Image Deck] Gallery listing page detected");
-          imageResult = getVisibleGalleryCovers();
-        }
+      const isListContext = contextInfo && (contextInfo.isSingleGallery || contextInfo.isGalleryListing || contextInfo.type === "images" || // Added this
+      contextInfo.isFilteredView);
+      if (isListContext) {
+        console.log("[Image Deck] Using context-based fetching for page 1");
+        imageResult = await fetchContextImages(contextInfo, 1, chunkSize);
       } else {
         console.log("[Image Deck] Falling back to visible images");
         imageResult = getVisibleImages();
@@ -1388,35 +1157,31 @@
         currentImages = imageResult;
         totalImageCount = imageResult.length;
         totalPages = 1;
-      } else {
-        currentImages = imageResult.images;
-        totalImageCount = imageResult.totalCount;
-        totalPages = imageResult.totalPages;
-        currentChunkPage = imageResult.currentPage;
+        currentChunkPage = 1;
+      } else if (imageResult) {
+        currentImages = imageResult.images || [];
+        totalImageCount = imageResult.totalCount || 0;
+        totalPages = imageResult.totalPages || 1;
+        currentChunkPage = imageResult.currentPage || 1;
       }
-      if (currentImages.length === 0) {
-        console.warn("[Image Deck] No images found");
-        let errorMessage = "No images found to display in Image Deck.\n\n";
-        if (storedContextInfo && storedContextInfo.isGalleryListing) {
-          errorMessage += "This appears to be a gallery listing page. ";
-          errorMessage += "Make sure you are on a page with visible gallery covers, ";
-          errorMessage += "or navigate to a specific gallery to view its images.";
-        } else if (storedContextInfo && storedContextInfo.isSingleGallery) {
-          errorMessage += "This appears to be a single gallery page, but no images were found. ";
-          errorMessage += "The gallery might be empty or there might be a loading issue.";
-        } else {
-          errorMessage += "No compatible content found on this page.";
-        }
-        alert(errorMessage);
-        return;
-      }
-      console.log(`[Image Deck] Opening with ${currentImages.length} images (chunk 1 of ${totalPages || 1})`);
+      console.log(`[Image Deck] Opening with ${currentImages.length} items (chunk 1 of ${totalPages || 1})`);
       const container = createDeckUI();
       document.body.classList.add("image-deck-open");
       requestAnimationFrame(() => {
         container.classList.add("active");
       });
-      currentSwiper = initSwiper(container, currentImages, pluginConfig, updateUI, savePosition, contextInfo);
+      currentSwiper = initSwiper(
+        container,
+        currentImages,
+        pluginConfig,
+        () => {
+          updateUI(container);
+          checkAndLoadNextChunk();
+        },
+        savePosition,
+        contextInfo
+      );
+      window.currentSwiperInstance = currentSwiper;
       restorePosition();
       updateUI(container);
       Promise.resolve().then(() => (init_controls(), controls_exports)).then((module) => {
@@ -1507,6 +1272,15 @@
       uiUpdatePending = false;
     });
   }
+  function checkAndLoadNextChunk() {
+    if (!currentSwiper || isChunkLoading) return;
+    const currentIndex = currentSwiper.activeIndex;
+    const totalCurrentSlides = currentImages.length;
+    if (currentIndex >= totalCurrentSlides - 3 && currentChunkPage < totalPages) {
+      console.log("[Image Deck] Auto-loading next chunk...");
+      loadNextChunk();
+    }
+  }
   function startAutoPlay() {
     if (!currentSwiper || isAutoPlaying) return;
     isAutoPlaying = true;
@@ -1558,107 +1332,67 @@
     }
   }
   async function loadNextChunk() {
-    console.log("[Image Deck] Attempting to load next chunk");
-    const contextToUse = storedContextInfo || contextInfo || detectContext();
-    if (!contextToUse) {
-      console.log("[Image Deck] No context info available");
-      const freshContext = detectContext();
-      if (!freshContext) {
-        console.log("[Image Deck] Could not detect context");
-        const loadingIndicator2 = document.querySelector(".image-deck-loading");
-        if (loadingIndicator2) {
-          loadingIndicator2.textContent = "Cannot detect context";
-          setTimeout(() => {
-            loadingIndicator2.style.display = "none";
-          }, 2e3);
-        }
-        return;
-      }
-      storedContextInfo = freshContext;
-      contextInfo = freshContext;
+    if (isChunkLoading) {
+      console.log("[Image Deck] Load already in progress, skipping...");
+      return;
     }
-    console.log("[Image Deck] Loading chunk", currentChunkPage + 1, "with context:", contextToUse);
+    if (currentChunkPage >= totalPages && totalPages !== 0) {
+      console.log("[Image Deck] All chunks already loaded.");
+      return;
+    }
+    isChunkLoading = true;
     const loadingIndicator = document.querySelector(".image-deck-loading");
+    const nextChunkButton = document.querySelector('[data-action="next-chunk"]');
     if (loadingIndicator) {
       loadingIndicator.style.display = "block";
       loadingIndicator.textContent = "Loading next chunk...";
-      loadingIndicator.style.backgroundColor = "rgba(100, 100, 255, 0.3)";
-      loadingIndicator.style.color = "white";
-      loadingIndicator.style.fontWeight = "bold";
-    }
-    const nextChunkButton = document.querySelector('[data-action="next-chunk"]');
-    if (nextChunkButton) {
-      nextChunkButton.innerHTML = "\u{1F504}";
-      nextChunkButton.disabled = true;
-      nextChunkButton.style.opacity = "0.5";
     }
     try {
+      const contextToUse = storedContextInfo || contextInfo || detectContext();
+      if (!contextToUse) throw new Error("Could not detect context for fetching");
+      console.log("[Image Deck] Fetching next chunk for context:", contextToUse.type);
       const nextPage = currentChunkPage + 1;
-      console.log("[Image Deck] Fetching page", nextPage, "with chunk size", chunkSize);
       const result = await fetchContextImages(contextToUse, nextPage, chunkSize);
-      console.log("[Image Deck] Fetched chunk result:", result);
+      console.log("[Image Deck] Fetch Result:", result);
       if (!result || !result.images || result.images.length === 0) {
-        console.log("[Image Deck] No more images to load (empty result)");
-        if (loadingIndicator) {
-          loadingIndicator.textContent = "No more images to load";
-          loadingIndicator.style.backgroundColor = "rgba(255, 100, 100, 0.3)";
-          setTimeout(() => {
-            loadingIndicator.style.display = "none";
-          }, 2e3);
-        }
+        if (loadingIndicator) loadingIndicator.textContent = "No more images found";
         return;
       }
-      const oldLength = currentImages.length;
       currentImages.push(...result.images);
-      totalImageCount = result.totalCount || totalImageCount;
-      totalPages = result.totalPages || totalPages;
       currentChunkPage = nextPage;
-      console.log(`[Image Deck] Added ${result.images.length} new images, total: ${currentImages.length}`);
-      if (currentSwiper && currentSwiper.virtual && result.images.length > 0) {
-        const newSlides = result.images.map((img) => {
-          const fullSrc = img.paths.image;
-          return `<div class="swiper-zoom-container"><img src="${fullSrc}" alt="${img.title || ""}" decoding="async" loading="lazy" style="max-width: 100%; height: auto; display: block; margin: 0 auto;" /></div>`;
-        });
+      totalPages = result.totalPages || totalPages;
+      const container = document.querySelector(".image-deck-container");
+      const galleryGrid = document.querySelector(".gallery-grid");
+      if (currentSwiper && currentSwiper.virtual) {
+        const newSlides = result.images.map((img) => `
+                <div class="swiper-zoom-container">
+                    <img src="${img.paths.image}" alt="${img.title || ""}" loading="lazy" />
+                </div>`);
         currentSwiper.virtual.slides.push(...newSlides);
         currentSwiper.virtual.update(true);
-        console.log(`[Image Deck] Added ${newSlides.length} virtual slides`);
+      } else if (galleryGrid) {
+        result.images.forEach((img) => {
+          const imgHTML = `
+                    <div class="gallery-item">
+                        <img src="${img.paths.image}" alt="${img.title || ""}" class="gallery-img" />
+                    </div>`;
+          galleryGrid.insertAdjacentHTML("beforeend", imgHTML);
+        });
       }
-      const container = document.querySelector(".image-deck-container");
-      if (container) {
-        updateUI(container);
-      }
+      if (container) updateUI(container);
       if (loadingIndicator) {
-        loadingIndicator.textContent = `\u2713 Loaded ${result.images.length} images (chunk ${nextPage})`;
-        loadingIndicator.style.backgroundColor = "rgba(100, 255, 100, 0.3)";
+        loadingIndicator.textContent = `\u2713 Loaded ${result.images.length} new images`;
         setTimeout(() => {
           loadingIndicator.style.display = "none";
         }, 2e3);
       }
-      console.log(`[Image Deck] Successfully loaded chunk ${nextPage}, total images: ${currentImages.length}`);
     } catch (error) {
-      console.error("[Image Deck] Error loading next chunk:", error);
-      const loadingIndicator2 = document.querySelector(".image-deck-loading");
-      if (loadingIndicator2) {
-        loadingIndicator2.textContent = "Error loading chunk: " + (error.message || "Unknown error");
-        loadingIndicator2.style.backgroundColor = "rgba(255, 100, 100, 0.3)";
-        setTimeout(() => {
-          loadingIndicator2.style.display = "none";
-        }, 3e3);
-      }
+      console.error("[Image Deck] Failed to load chunk:", error);
     } finally {
-      const nextChunkButton2 = document.querySelector('[data-action="next-chunk"]');
-      if (nextChunkButton2) {
-        nextChunkButton2.innerHTML = "\u23ED\uFE0F";
-        nextChunkButton2.disabled = false;
-        nextChunkButton2.style.opacity = "1";
-      }
-      const loadingIndicator2 = document.querySelector(".image-deck-loading");
-      if (loadingIndicator2) {
-        setTimeout(() => {
-          if (loadingIndicator2.style.display !== "none") {
-            loadingIndicator2.style.display = "none";
-          }
-        }, 3e3);
+      isChunkLoading = false;
+      if (nextChunkButton) {
+        nextChunkButton.disabled = false;
+        nextChunkButton.style.opacity = "1";
       }
     }
   }
@@ -1680,7 +1414,7 @@
     contextInfo = null;
     loadingQueue = [];
   }
-  var pluginConfig, currentSwiper, currentImages, autoPlayInterval, isAutoPlaying, contextInfo, loadingQueue, currentChunkPage, chunkSize, totalImageCount, totalPages, storedContextInfo, uiUpdatePending;
+  var pluginConfig, currentSwiper, currentImages, autoPlayInterval, isAutoPlaying, contextInfo, loadingQueue, currentChunkPage, chunkSize, totalImageCount, totalPages, storedContextInfo, uiUpdatePending, isChunkLoading;
   var init_deck = __esm({
     "deck.js"() {
       init_config();
@@ -1700,20 +1434,37 @@
       totalPages = 0;
       storedContextInfo = null;
       uiUpdatePending = false;
+      isChunkLoading = false;
     }
   });
 
   // button.js
   init_context();
   var retryTimer = null;
+  var observer = new MutationObserver(() => {
+    const path = window.location.pathname;
+    if (path.startsWith("/galleries") || path.startsWith("/images")) {
+      if (!document.getElementById("image-deck-nav-btn")) {
+        retryCreateButton();
+      }
+    } else {
+      cleanupButton();
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
   function createLaunchButton() {
     const buttonId = "image-deck-nav-btn";
     const existing = document.getElementById(buttonId);
+    const path = window.location.pathname;
+    const isAllowedPath = path.startsWith("/galleries") || path.startsWith("/images");
+    if (!isAllowedPath) {
+      cleanupButton();
+      return;
+    }
     const context = detectContext();
     const hasImages = document.querySelectorAll('img[src*="/image/"]').length > 0;
     const hasGalleryCovers = document.querySelectorAll(".gallery-cover img, .gallery-card img").length > 0;
     if (!context && !hasImages && !hasGalleryCovers) {
-      if (existing) existing.closest(".nav-link")?.remove();
       return;
     }
     if (existing) return;
@@ -1737,23 +1488,31 @@
         </a>
     `;
     const button = buttonContainer.querySelector(`#${buttonId}`);
-    button.addEventListener("click", function(e) {
-      Promise.resolve().then(() => (init_deck(), deck_exports)).then((module) => {
-        module.openDeck();
-      });
+    button.addEventListener("click", (e) => {
+      Promise.resolve().then(() => (init_deck(), deck_exports)).then((module) => module.openDeck());
     });
     const navTarget = document.querySelector(".navbar-nav");
     if (navTarget) {
       navTarget.appendChild(buttonContainer);
     }
   }
+  function cleanupButton() {
+    const existing = document.getElementById("image-deck-nav-btn");
+    if (existing) existing.closest(".nav-link")?.remove();
+  }
   function retryCreateButton(attempts = 0, maxAttempts = 5) {
-    const delays = [100, 300, 500, 1e3, 2e3];
+    const path = window.location.pathname;
+    const isAllowed = path.startsWith("/galleries") || path.startsWith("/images");
+    if (!isAllowed) {
+      cleanupButton();
+      return;
+    }
     const hasContext = detectContext() || document.querySelectorAll('img[src*="/image/"]').length > 0 || document.querySelectorAll(".gallery-cover img, .gallery-card img").length > 0;
     if (hasContext) {
       createLaunchButton();
     } else if (attempts < maxAttempts - 1) {
       clearTimeout(retryTimer);
+      const delays = [100, 300, 500, 1e3, 2e3];
       retryTimer = setTimeout(() => retryCreateButton(attempts + 1, maxAttempts), delays[attempts]);
     }
   }
@@ -1768,7 +1527,7 @@
     }
     retryCreateButton();
     let debounceTimer;
-    const observer = new MutationObserver((mutations) => {
+    const observer2 = new MutationObserver((mutations) => {
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         const hasButton = document.querySelector(".image-deck-launch-btn");
@@ -1779,7 +1538,7 @@
       }, 300);
     });
     const mainContent = document.querySelector(".main-content") || document.querySelector('[role="main"]') || document.body;
-    observer.observe(mainContent, {
+    observer2.observe(mainContent, {
       childList: true,
       subtree: true
       // Watch subtree to catch React updates

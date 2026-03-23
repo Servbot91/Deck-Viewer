@@ -3,72 +3,60 @@ export function detectContext() {
     const hash = window.location.hash;
     const search = window.location.search;
 
-    // Check if we're on the images page
-    const isImagesPage = path === '/images' || path === '/images/';
-    
-    // Check for individual image page pattern like /images/123456
+    // 1. Check for individual image page
     const imageIdMatch = path.match(/^\/images\/(\d+)$/);
     if (imageIdMatch) {
-        return {
-            type: 'images',
-            id: imageIdMatch[1],
-            hash: hash,
-            isSingleImage: true
-        };
+        return { type: 'images', id: imageIdMatch[1], hash, isSingleImage: true };
     }
-    
-    // Check for gallery pages
-    const isGalleriesPage = path === '/galleries' || path === '/galleries/';
-    const galleryIdMatch = path.match(/^\/galleries\/(\d+)(\?.*)?$/);
-    if (galleryIdMatch) {
-        return {
-            type: 'galleries',
-            id: galleryIdMatch[1],
-            hash: hash,
-            isSingleGallery: true
-        };
-    }
-    
-    // Extract ID from simple path pattern like /performers/123 or /tags/456
-    const idMatch = path.match(/\/(\w+)\/(\d+)/);
-    
-    // Check if we're on an images tab
-    const isImagesContext = hash.includes('images') ||
-                           document.querySelector('.nav-tabs .active')?.textContent?.includes('Images');
 
-    // Handle complex filtered views on /images page
-    if (isImagesPage && search && search.includes('c=')) {
-        // Parse the filter parameters from URL
+    // 2. Check for Gallery Contexts
+    if (path.startsWith('/galleries')) {
+        const galleryIdMatch = path.match(/^\/galleries\/(\d+)/);
+        if (galleryIdMatch) {
+            return { type: 'galleries', id: galleryIdMatch[1], hash, isSingleGallery: true };
+        } else {
+            const filters = parseUrlFilters(search);
+            return { type: 'galleries', isGalleryListing: true, filter: filters, hash };
+        }
+    }
+
+    // 3. IMPROVED: Handle /images page (with OR without search params)
+    if (path.startsWith('/images')) {
         const filters = parseUrlFilters(search);
-        
         return {
             type: 'images',
-            id: null,
-            hash: hash,
-            isFilteredView: true,
+            isFilteredView: !!search, // true if there are any search params
+            isGeneralListing: !search, // true if it's just the base /images page
             filter: filters,
-            isGeneralListing: false
+            hash: hash
         };
     }
 
-    // Handle simple path-based contexts
+    // 4. Handle path-based patterns (Performers, Tags, etc.)
+    const idMatch = path.match(/\/(\w+)\/(\d+)/);
     if (idMatch) {
         const [, type, id] = idMatch;
+        const isImagesTab = hash.includes('images') || 
+                           document.querySelector('.nav-tabs .active')?.textContent?.includes('Images');
 
-        if (!isImagesContext && type !== 'galleries') {
-            return null; // Only work with image contexts
+        if (isImagesTab || type === 'galleries') {
+            // Mapping common types to what the GraphQL image_filter expects
+            const filter = {};
+            if (type === 'performers') filter.performers = { value: [id], modifier: "INCLUDES" };
+            if (type === 'tags') filter.tags = { value: [id], modifier: "INCLUDES" };
+            if (type === 'studios') filter.studios = { value: [id], modifier: "INCLUDES" };
+
+            return { type, id, filter, hash };
         }
-
-        return { type, id, hash };
     }
 
-    // For general image listings, check if we have visible images
+    // 5. Fallback: If we see images, at least try to paginate the general list
     if (document.querySelectorAll('img[src*="/image/"]').length > 0) {
         return {
             type: 'images',
-            id: null,
-            hash: hash,
-            isGeneralListing: true
+            isGeneralListing: true,
+            filter: parseUrlFilters(search), // Still try to grab any sort/direction params
+            hash: hash
         };
     }
 
@@ -167,284 +155,77 @@ export function getVisibleGalleryCovers() {
 
     return galleries;
 }
-
-// Fetch images based on context - PAGINATED VERSION
 export async function fetchContextImages(context, page = 1, perPage = 50) {
-    const { type, id, filter, isFilteredView, isGeneralListing, isSingleImage, isSingleGallery } = context;
+    const { type, id, filter, isSingleGallery, isGalleryListing } = context;
     let query = '';
     let variables = {};
     
-    // Handle single image page
-    if (isSingleImage && id) {
-        // Fetch the single image details
-        const query = `query FindImage($id: ID!) {
-            findImage(id: $id) {
-                id
-                title
-                paths {
-                    thumbnail
-                    image
-                }
-            }
-        }`;
+    // Determine if we are looking for Gallery Objects or Image Objects
+    const isFetchingGalleries = isGalleryListing || (type === 'galleries' && !isSingleGallery);
 
-        try {
-            const response = await fetch('/graphql', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query, variables: { id } })
-            });
-
-            const data = await response.json();
-            const image = data?.data?.findImage;
-            
-            if (image) {
-                return { 
-                    images: [image], 
-                    totalCount: 1, 
-                    currentPage: 1,
-                    totalPages: 1,
-                    hasNextPage: false,
-                    hasPreviousPage: false
-                };
-            }
-        } catch (error) {
-            console.error('[Image Deck] Error fetching single image:', error);
-        }
-        
-        return { 
-            images: [], 
-            totalCount: 0, 
-            currentPage: 1,
-            totalPages: 0,
-            hasNextPage: false,
-            hasPreviousPage: false
-        };
-    }
-
-    // Handle filtered views
-    if (isFilteredView && filter) {
-        query = `query FindImages($filter: FindFilterType!, $image_filter: ImageFilterType!) {
-            findImages(filter: $filter, image_filter: $image_filter) {
+    if (isFetchingGalleries) {
+        query = `query FindGalleries($filter: FindFilterType!, $gallery_filter: GalleryFilterType) {
+            findGalleries(filter: $filter, gallery_filter: $gallery_filter) {
                 count
-                images {
-                    id
-                    title
-                    paths {
-                        thumbnail
-                        image
-                    }
+                galleries {
+                    id title cover { paths { thumbnail image } }
                 }
             }
         }`;
         
-        // Build the image filter based on URL parameters
-        let imageFilter = {};
-        
-        if (filter.rawFilters) {
-            // Process each filter parameter
-            filter.rawFilters.forEach(filterStr => {
-                try {
-                    // Decode the URL-encoded string
-                    const decoded = decodeURIComponent(filterStr);
-                    
-                    // Convert the pseudo-JSON format to real JSON
-                    // Replace parentheses with braces and fix quotes
-                    let jsonStr = decoded
-                        .replace(/\(/g, '{')
-                        .replace(/\)/g, '}')
-                        .replace(/\\+"/g, '"')
-                        .replace(/^"(.*)"$/, '$1'); // Remove surrounding quotes if present
-                    
-                    // Fix malformed JSON by ensuring proper quote escaping
-                    jsonStr = jsonStr.replace(/([^\\])"/g, '$1\\"').replace(/\\"/g, '"');
-                    
-                    const filterObj = JSON.parse(jsonStr);
-                    
-                    if (filterObj.type === 'tags' && filterObj.value) {
-                        const tagFilter = {};
-                        
-                        // Handle included tags
-                        if (filterObj.value.items && filterObj.value.items.length > 0) {
-                            tagFilter.value = filterObj.value.items.map(item => item.id);
-                            tagFilter.modifier = filterObj.modifier || "INCLUDES_ALL";
-                        }
-                        
-                        // Handle excluded tags  
-                        if (filterObj.value.excluded && filterObj.value.excluded.length > 0) {
-                            // Combine excluded with existing tag filter or create new one
-                            if (!tagFilter.value) {
-                                tagFilter.value = [];
-                            }
-                            tagFilter.value.push(...filterObj.value.excluded.map(item => item.id));
-                            if (!tagFilter.modifier || tagFilter.modifier === "INCLUDES_ALL") {
-                                tagFilter.modifier = "EXCLUDES"; // This logic may need adjustment
-                            }
-                        }
-                        
-                        if (tagFilter.value && tagFilter.value.length > 0) {
-                            imageFilter.tags = tagFilter;
-                        }
-                    }
-                    else if (filterObj.type === 'performers' && filterObj.value) {
-                        if (filterObj.value.items && filterObj.value.items.length > 0) {
-                            imageFilter.performers = {
-                                value: filterObj.value.items.map(item => item.id),
-                                modifier: filterObj.modifier || "INCLUDES_ALL"
-                            };
-                        }
-                    }
-                    else if (filterObj.type === 'file_count' && filterObj.value) {
-                        // Handle file_count filter
-                        imageFilter.file_count = {
-                            value: filterObj.value.value,
-                            modifier: filterObj.modifier || "GREATER_THAN"
-                        };
-                    }
-                    // Add more filter types as needed
-                } catch (e) {
-                    console.error('[Image Deck] Error parsing filter:', filterStr, e);
-                }
-            });
-        }
-        
-        variables = {
-            filter: { 
-                per_page: filter.perPage || perPage, 
-                page: page, 
-                sort: filter.sortBy || "created_at",
-                direction: (filter.sortDir || "desc").toUpperCase()
-            },
-            image_filter: imageFilter
-        };
-    }
-    // Handle simple path-based contexts
-    else if (type && id) {
-        switch(type) {
-            case 'performers':
-                query = `query FindImages($filter: FindFilterType!, $image_filter: ImageFilterType!) {
-                    findImages(filter: $filter, image_filter: $image_filter) {
-                        count
-                        images {
-                            id
-                            title
-                            paths {
-                                thumbnail
-                                image
-                            }
-                        }
-                    }
-                }`;
-                variables = {
-                    filter: { per_page: perPage, page: page, sort: "random" },
-                    image_filter: { performers: { value: [id], modifier: "INCLUDES" } }
-                };
-                break;
-
-            case 'tags':
-                query = `query FindImages($filter: FindFilterType!, $image_filter: ImageFilterType!) {
-                    findImages(filter: $filter, image_filter: $image_filter) {
-                        count
-                        images {
-                            id
-                            title
-                            paths {
-                                thumbnail
-                                image
-                            }
-                        }
-                    }
-                }`;
-                variables = {
-                    filter: { per_page: perPage, page: page, sort: "random" },
-                    image_filter: { tags: { value: [id], modifier: "INCLUDES" } }
-                };
-                break;
-
-		case 'galleries':
-			// For single gallery view, show images in the gallery using findImages
-			if (context && context.isSingleGallery) {
-				query = `query FindImages($filter: FindFilterType!, $image_filter: ImageFilterType!) {
-					findImages(filter: $filter, image_filter: $image_filter) {
-						count
-						images {
-							id
-							title
-							paths {
-								thumbnail
-								image
-							}
-						}
-					}
-				}`;
-				variables = {
-					filter: { per_page: perPage, page: page, sort: "created_at", direction: "ASC" },
-					image_filter: { galleries: { value: [id], modifier: "INCLUDES" } }
-				};
-				console.log('[Image Deck] Fetching images for gallery ID:', id, 'Variables:', variables);
-			} else {
-				// For galleries listing, show gallery covers
-				query = `query FindGalleries($filter: FindFilterType!) {
-					findGalleries(filter: $filter) {
-						count
-						galleries {
-							id
-							title
-							cover {
-								paths {
-									thumbnail
-									image
-								}
-							}
-						}
-					}
-				}`;
-				variables = {
-					filter: { 
-						per_page: perPage, 
-						page: page, 
-						sort: "created_at",
-						direction: "DESC"
-					}
-				};
-			}
-			break;
-
-            default:
-                // For general image listings, grab visible images
-                return getVisibleImages();
-        }
-    }
-	
-    // Handle general listings
-    else if (isGeneralListing) {
-        // Use GraphQL to fetch paginated general images
-        query = `query FindImages($filter: FindFilterType!) {
-            findImages(filter: $filter) {
-                count
-                images {
-                    id
-                    title
-                    paths {
-                        thumbnail
-                        image
-                    }
-                }
-            }
-        }`;
         variables = {
             filter: { 
                 per_page: perPage, 
                 page: page, 
-                sort: "created_at",
-                direction: "DESC"
-            }
+                sort: filter?.sortBy || "created_at", 
+                direction: (filter?.sortDir || "desc").toUpperCase() 
+            },
+            gallery_filter: filter?.gallery_filter || {}
         };
-    }
-    else {
-        // For general image listings, grab visible images
-        return getVisibleImages();
-    }
+    } else {
+        // Fetching standard images (or images inside a single gallery)
+        query = `query FindImages($filter: FindFilterType!, $image_filter: ImageFilterType) {
+            findImages(filter: $filter, image_filter: $image_filter) {
+                count
+                images {
+                    id title paths { thumbnail image }
+                }
+            }
+        }`;
+
+        // Construct the image filter
+        let activeImageFilter = {};
+
+	if (isSingleGallery && id) {
+			activeImageFilter = { galleries: { value: [id], modifier: "INCLUDES" } };
+		} else if (filter) {
+			// --- CRITICAL CLEANUP START ---
+			// Define EXACTLY which fields the GraphQL ImageFilterType allows.
+			// If a field isn't in this list, we don't send it.
+			const allowedFields = [
+				'tags', 'performers', 'studios', 'markers', 'galleries', 
+				'pht_path', 'rating', 'organized', 'is_missing'
+			];
+
+			activeImageFilter = {};
+			allowedFields.forEach(field => {
+				if (filter[field]) {
+					activeImageFilter[field] = filter[field];
+				}
+			});
+			// --- CRITICAL CLEANUP END ---
+		}
+
+    variables = {
+        filter: { 
+            per_page: perPage, 
+            page: page, 
+            sort: filter?.sortBy || "created_at", 
+            direction: (filter?.sortDir || "desc").toUpperCase() 
+        },
+        image_filter: activeImageFilter
+    };
+}
 
     try {
         const response = await fetch('/graphql', {
@@ -453,73 +234,55 @@ export async function fetchContextImages(context, page = 1, perPage = 50) {
             body: JSON.stringify({ query, variables })
         });
 
-        const responseText = await response.text();
-        console.log('[Image Deck] GraphQL Response Text:', responseText);
-
-        // Try to parse as JSON
-        let data;
-        try {
-            data = JSON.parse(responseText);
-        } catch (parseError) {
-            console.error('[Image Deck] Failed to parse GraphQL response as JSON:', parseError);
-            console.error('[Image Deck] Raw response:', responseText);
-            throw new Error('Invalid GraphQL response format');
-        }
-
-        // Check for GraphQL errors
+        const data = await response.json();
+        
         if (data.errors) {
             console.error('[Image Deck] GraphQL Errors:', data.errors);
-            throw new Error(`GraphQL Error: ${data.errors.map(e => e.message).join(', ')}`);
+            throw new Error(data.errors[0].message);
         }
 
-        let images = [];
+        let normalizedImages = [];
         let totalCount = 0;
-        
-        if ((type === 'galleries') || (context && context.type === 'galleries')) {
-            if (context && context.isSingleGallery) {
-                // For single gallery, show images
-images = data?.data?.findImages?.images || [];
-totalCount = data?.data?.findImages?.count || images.length;
-                totalCount = images.length; // Galleries have direct count
-                console.log('[Image Deck] Fetched gallery images:', images);
-            } else {
-                // For galleries listing, show covers
-                const galleries = data?.data?.findGalleries?.galleries || [];
-                images = galleries.map(gallery => ({
-                    id: gallery.id,
-                    title: gallery.title,
-                    paths: {
-                        image: gallery.cover?.paths?.image || gallery.cover?.paths?.thumbnail || ''
-                    }
-                })).filter(g => g.paths.image); // Filter out galleries without covers
-                totalCount = data?.data?.findGalleries?.count || images.length;
-            }
+
+        if (isFetchingGalleries) {
+            const result = data?.data?.findGalleries;
+            totalCount = result?.count || 0;
+            normalizedImages = (result?.galleries || []).map(g => ({
+                id: g.id,
+                title: g.title,
+                isGallery: true,
+                type: 'gallery',
+                paths: { image: g.cover?.paths?.image || g.cover?.paths?.thumbnail || '' },
+                url: `/galleries/${g.id}`
+            }));
         } else {
-            images = data?.data?.findImages?.images || [];
-            totalCount = data?.data?.findImages?.count || images.length;
-            if (page === 1 && totalCount > perPage) {
-                console.log(`[Image Deck] Total images: ${totalCount}, loading first ${perPage} for performance`);
-            }
+            const result = data?.data?.findImages;
+            totalCount = result?.count || 0;
+            normalizedImages = (result?.images || []).map(img => ({
+                ...img,
+                isGallery: false,
+                type: 'image'
+            }));
         }
 
-        // Return both images and total count plus pagination info
+        const calculatedTotalPages = Math.ceil(totalCount / perPage);
+
         return { 
-            images, 
+            images: normalizedImages, 
             totalCount, 
             currentPage: page,
-            totalPages: Math.ceil(totalCount / perPage),
-            hasNextPage: page < Math.ceil(totalCount / perPage),
-            hasPreviousPage: page > 1
+            totalPages: calculatedTotalPages,
+            hasNextPage: page < calculatedTotalPages
         };
+
     } catch (error) {
-        console.error(`[Image Deck] Error fetching images:`, error);
+        console.error(`[Image Deck] Fetch Error:`, error);
         return { 
             images: [], 
             totalCount: 0, 
-            currentPage: 1,
-            totalPages: 0,
-            hasNextPage: false,
-            hasPreviousPage: false
+            currentPage: 1, 
+            totalPages: 0, 
+            hasNextPage: false 
         };
     }
 }

@@ -34,105 +34,94 @@ export async function openDeck() {
         // Inject dynamic styles
         injectDynamicStyles(pluginConfig);
 
-        // Get context - STORE IT IN MODULE SCOPE
-        const detectedContext = detectContext();
-        storedContextInfo = detectedContext;
-        contextInfo = detectedContext;
-
-        console.log('[Image Deck] Context detected:', storedContextInfo);
+        // 1. Context Detection Logic
+        let detectedContext = detectContext();
         
-        // Enhanced manual context creation for single galleries
-        if ((!detectedContext || detectedContext.isGalleryListing) && window.location.pathname.startsWith('/galleries')) {
+        // Enhanced manual context creation for single galleries OR listing pages
+        if (window.location.pathname.startsWith('/galleries')) {
             const galleryIdMatch = window.location.pathname.match(/^\/galleries\/(\d+)/);
+            
             if (galleryIdMatch) {
-                const manualContext = {
+                // Scenario: Single Gallery Page
+                detectedContext = {
                     type: 'galleries',
                     id: galleryIdMatch[1],
                     isSingleGallery: true
                 };
-                storedContextInfo = manualContext;
-                contextInfo = manualContext;
-                console.log('[Image Deck] Manual context override created:', manualContext);
+            } else {
+                // Scenario: Gallery Listing Page (with filters/sorting)
+                // We capture the current search params to persist filters during pagination
+                detectedContext = {
+                    type: 'galleries-listing',
+                    isGalleryListing: true,
+                    queryParams: window.location.search 
+                };
             }
         }
-        
-        
-        // Determine what content to show
+
+        storedContextInfo = detectedContext;
+        contextInfo = detectedContext;
+        console.log('[Image Deck] Context assigned:', contextInfo);
+
+// 2. Determine what content to show
         let imageResult;
-        if (storedContextInfo) {
-            console.log('[Image Deck] Using context-based fetching');
-            imageResult = await fetchContextImages(storedContextInfo, 1, chunkSize);
-        } else if (window.location.pathname.startsWith('/galleries')) {
-            console.log('[Image Deck] Checking gallery page type');
-            // Check if we're on a single gallery page
-            const galleryIdMatch = window.location.pathname.match(/^\/galleries\/(\d+)/);
-            if (galleryIdMatch) {
-                console.log('[Image Deck] Single gallery page detected');
-                // We're on a single gallery page, fetch images from this gallery
-                const galleryContext = {
-                    type: 'galleries',
-                    id: galleryIdMatch[1],
-                    isSingleGallery: true
-                };
-                imageResult = await fetchContextImages(galleryContext, 1, chunkSize);
-            } else {
-                console.log('[Image Deck] Gallery listing page detected');
-                // On galleries listing page, get visible gallery covers
-                imageResult = getVisibleGalleryCovers();
-            }
+        
+        // UPDATED: Include 'images' type in context-based fetching
+        const isListContext = contextInfo && (
+            contextInfo.isSingleGallery || 
+            contextInfo.isGalleryListing || 
+            contextInfo.type === 'images' || // Added this
+            contextInfo.isFilteredView       // Added this
+        );
+
+        if (isListContext) {
+            console.log('[Image Deck] Using context-based fetching for page 1');
+            imageResult = await fetchContextImages(contextInfo, 1, chunkSize);
         } else {
             console.log('[Image Deck] Falling back to visible images');
-            // Default to visible images
             imageResult = getVisibleImages();
         }
         
-        // Handle both return formats
+        // 3. Handle data results
         if (Array.isArray(imageResult)) {
+            // This path is for getVisibleImages() (the 20 items on screen)
             currentImages = imageResult;
             totalImageCount = imageResult.length;
             totalPages = 1;
-        } else {
-            currentImages = imageResult.images;
-            totalImageCount = imageResult.totalCount;
-            totalPages = imageResult.totalPages;
-            currentChunkPage = imageResult.currentPage;
+            currentChunkPage = 1;
+        } else if (imageResult) {
+            // This path is for fetchContextImages() (Full database results)
+            currentImages = imageResult.images || [];
+            totalImageCount = imageResult.totalCount || 0;
+            totalPages = imageResult.totalPages || 1;
+            currentChunkPage = imageResult.currentPage || 1;
         }
 
-        if (currentImages.length === 0) {
-            console.warn('[Image Deck] No images found');
-            
-            // Provide more helpful error message
-            let errorMessage = 'No images found to display in Image Deck.\n\n';
-            
-            if (storedContextInfo && storedContextInfo.isGalleryListing) {
-                errorMessage += 'This appears to be a gallery listing page. ';
-                errorMessage += 'Make sure you are on a page with visible gallery covers, ';
-                errorMessage += 'or navigate to a specific gallery to view its images.';
-            } else if (storedContextInfo && storedContextInfo.isSingleGallery) {
-                errorMessage += 'This appears to be a single gallery page, but no images were found. ';
-                errorMessage += 'The gallery might be empty or there might be a loading issue.';
-            } else {
-                errorMessage += 'No compatible content found on this page.';
-            }
-            
-            alert(errorMessage);
-            return;
-        }
-        console.log(`[Image Deck] Opening with ${currentImages.length} images (chunk 1 of ${totalPages || 1})`);
+        console.log(`[Image Deck] Opening with ${currentImages.length} items (chunk 1 of ${totalPages || 1})`);
 
-        // Create UI
+        // 4. Create UI
         const container = createDeckUI();
         document.body.classList.add('image-deck-open');
 
-        // Animate in with GPU acceleration
         requestAnimationFrame(() => {
             container.classList.add('active');
         });
 
-        // Initialize Swiper
-        currentSwiper = initSwiper(container, currentImages, pluginConfig, updateUI, savePosition, contextInfo);
-		
-		window.currentSwiperInstance = currentSwiper;
+        // 5. Initialize Swiper 
+        // We pass checkAndLoadNextChunk into the update callback so it checks on every slide change
+        currentSwiper = initSwiper(
+            container, 
+            currentImages, 
+            pluginConfig, 
+            () => {
+                updateUI(container);
+                checkAndLoadNextChunk(); 
+            }, 
+            savePosition, 
+            contextInfo
+        );
+        
+        window.currentSwiperInstance = currentSwiper;
         
         // Restore position
         restorePosition();
@@ -198,7 +187,7 @@ function createDeckUI() {
 }
 
 // Update UI elements - debounced to prevent flicker
-let uiUpdatePending = false;
+	let uiUpdatePending = false;
 function updateUI(container) {
     if (!currentSwiper || uiUpdatePending) return;
 
@@ -340,38 +329,30 @@ export async function loadNextChunk() {
         return;
     }
 
-    // 2. Guard: Check if we've actually reached the end of available content
+    // 2. Guard: Check if we've reached the end
     if (currentChunkPage >= totalPages && totalPages !== 0) {
         console.log('[Image Deck] All chunks already loaded.');
         return;
     }
 
-    console.log('[Image Deck] Starting to load next chunk...');
     isChunkLoading = true;
 
-    // UI Feedback: Update the button and loading indicator
+    // UI Feedback
     const loadingIndicator = document.querySelector('.image-deck-loading');
     const nextChunkButton = document.querySelector('[data-action="next-chunk"]');
     
     if (loadingIndicator) {
         loadingIndicator.style.display = 'block';
         loadingIndicator.textContent = 'Loading next chunk...';
-        loadingIndicator.style.backgroundColor = 'rgba(100, 100, 255, 0.4)';
-    }
-
-    if (nextChunkButton) {
-        nextChunkButton.innerHTML = '🔄'; 
-        nextChunkButton.disabled = true;
-        nextChunkButton.style.opacity = '0.5';
     }
 
     try {
         const contextToUse = storedContextInfo || contextInfo || detectContext();
         if (!contextToUse) throw new Error('Could not detect context for fetching');
-
-        const nextPage = currentChunkPage + 1;
+		console.log('[Image Deck] Fetching next chunk for context:', contextToUse.type);
+		const nextPage = currentChunkPage + 1;
         const result = await fetchContextImages(contextToUse, nextPage, chunkSize);
-
+		console.log('[Image Deck] Fetch Result:', result);
         if (!result || !result.images || result.images.length === 0) {
             if (loadingIndicator) loadingIndicator.textContent = 'No more images found';
             return;
@@ -379,47 +360,46 @@ export async function loadNextChunk() {
 
         // 3. Update Data State
         currentImages.push(...result.images);
-        totalImageCount = result.totalCount || totalImageCount;
-        totalPages = result.totalPages || totalPages;
         currentChunkPage = nextPage;
+        totalPages = result.totalPages || totalPages;
 
-        // 4. Update Swiper (Crucial for Virtual Slides)
+        // 4. Update UI (Swiper OR Gallery)
+        const container = document.querySelector('.image-deck-container');
+        const galleryGrid = document.querySelector('.gallery-grid'); // Change this to your actual gallery class
+
         if (currentSwiper && currentSwiper.virtual) {
-            const newSlides = result.images.map(img => {
-                const fullSrc = img.paths.image;
-                return `<div class="swiper-zoom-container">
-                            <img src="${fullSrc}" 
-                                 alt="${img.title || ''}" 
-                                 decoding="async" 
-                                 loading="lazy" />
-                        </div>`;
-            });
-
+            // Logic for Swiper (Virtual Slides)
+            const newSlides = result.images.map(img => `
+                <div class="swiper-zoom-container">
+                    <img src="${img.paths.image}" alt="${img.title || ''}" loading="lazy" />
+                </div>`);
             currentSwiper.virtual.slides.push(...newSlides);
             currentSwiper.virtual.update(true); 
+        } else if (galleryGrid) {
+            // Logic for Standard Gallery (Append new elements)
+            result.images.forEach(img => {
+                const imgHTML = `
+                    <div class="gallery-item">
+                        <img src="${img.paths.image}" alt="${img.title || ''}" class="gallery-img" />
+                    </div>`;
+                galleryGrid.insertAdjacentHTML('beforeend', imgHTML);
+            });
         }
 
-        // 5. Success UI Feedback
+        // 5. General UI Refresh
+        if (container) updateUI(container);
+
+        // Success Feedback
         if (loadingIndicator) {
             loadingIndicator.textContent = `✓ Loaded ${result.images.length} new images`;
-            loadingIndicator.style.backgroundColor = 'rgba(100, 255, 100, 0.3)';
             setTimeout(() => { loadingIndicator.style.display = 'none'; }, 2000);
         }
 
-        const container = document.querySelector('.image-deck-container');
-        if (container) updateUI(container);
-
     } catch (error) {
         console.error('[Image Deck] Failed to load chunk:', error);
-        if (loadingIndicator) {
-            loadingIndicator.textContent = 'Error: ' + error.message;
-            loadingIndicator.style.backgroundColor = 'rgba(255, 100, 100, 0.4)';
-        }
     } finally {
-        // 6. Release the lock and restore UI
         isChunkLoading = false;
         if (nextChunkButton) {
-            nextChunkButton.innerHTML = '⏭️';
             nextChunkButton.disabled = false;
             nextChunkButton.style.opacity = '1';
         }
