@@ -1,32 +1,21 @@
 /* Image Deck Plugin Styles - Performance Optimized */
 
-.image-deck-launch-btn {
-    position: fixed;
-    bottom: 80px;
-    right: 20px;
-    width: 56px;
-    height: 56px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border: none;
-    cursor: pointer;
-    z-index: 999;
+/* Remove the old floating button styles and replace with these */
+#image-deck-nav-btn {
+    /* Transitions only, the rest is handled by Bootstrap btn classes */
+    transition: transform 0.2s ease, filter 0.2s ease;
+}
+
+#image-deck-nav-btn:hover {
+    transform: scale(1.05);
+    filter: brightness(1.1);
+}
+
+#image-deck-nav-btn .nav-menu-icon {
+    /* Align the emoji with the site's SVG icons */
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
-    font-size: 24px;
-    /* GPU acceleration */
-    will-change: transform;
-    transform: translateZ(0);
-    backface-visibility: hidden;
-}
-
-.image-deck-launch-btn:hover {
-    transform: scale(1.1) translateZ(0);
-    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
 }
 
 .image-deck-container {
@@ -185,8 +174,7 @@
 
 /* Topbar buttons - shared styles */
 .image-deck-close,
-.image-deck-fullscreen,
-.image-deck-strobe-btn {
+.image-deck-fullscreen{
     width: 40px;
     height: 40px;
     border-radius: 50%;
@@ -207,21 +195,9 @@
 }
 
 .image-deck-close:hover,
-.image-deck-fullscreen:hover,
-.image-deck-strobe-btn:hover {
+.image-deck-fullscreen:hover{
     background: rgba(255,255,255,0.2);
     transform: scale(1.1) translateZ(0);
-}
-
-.image-deck-strobe-btn.active {
-    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-    border-color: transparent;
-    animation: strobeBtnPulse 0.5s ease-in-out infinite;
-}
-
-@keyframes strobeBtnPulse {
-    0%, 100% { transform: scale(1) translateZ(0); }
-    50% { transform: scale(1.15) translateZ(0); }
 }
 
 /* Control buttons */
@@ -401,40 +377,6 @@
 
 @keyframes spin {
     to { transform: translate(-50%, -50%) rotate(360deg); }
-}
-
-/* Particle canvas for eye candy */
-.image-deck-particles {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-    z-index: 1;
-    opacity: 0.6;
-    /* GPU acceleration */
-    transform: translateZ(0);
-    backface-visibility: hidden;
-    will-change: transform;
-}
-
-/* Strobe overlay */
-.image-deck-strobe {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-    z-index: 4;
-    background: white;
-    opacity: 0;
-    transition: opacity 0.05s ease-out;
-    /* GPU acceleration */
-    transform: translateZ(0);
-    backface-visibility: hidden;
-    will-change: opacity;
 }
 
 /* Ambient gradient overlay */
