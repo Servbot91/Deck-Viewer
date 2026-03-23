@@ -475,8 +475,8 @@
   }
   function initSwiper(container, images, pluginConfig2, updateUICallback, savePositionCallback, contextInfo2) {
     const wrapper = container.querySelector(".swiper-wrapper");
+    const swiperEl = container.querySelector(".swiper");
     const useVirtual = images.length > 10;
-    const eagerLoadAll = images.length <= 10;
     const effectOptions = getEffectOptions(pluginConfig2.transitionEffect, pluginConfig2);
     const swiperConfig = {
       effect: pluginConfig2.transitionEffect,
@@ -484,143 +484,93 @@
       centeredSlides: true,
       slidesPerView: 1,
       resistanceRatio: pluginConfig2.swipeResistance / 100,
-      // Performance optimizations
       speed: 150,
       watchSlidesProgress: true,
       preloadImages: false,
-      keyboard: {
-        enabled: true,
-        onlyInViewport: false
-      },
-      // Add loop functionality for single galleries
+      keyboard: { enabled: true, onlyInViewport: false },
       loop: contextInfo2?.isSingleGallery ? true : false,
       loopAdditionalSlides: 2,
-      // Add extra slides for smooth looping
       ...effectOptions
+    };
+    const getSlideTemplate = (img, isEager) => {
+      const fullSrc = img.paths.image;
+      const isGallery = img.url && !contextInfo2?.isSingleGallery;
+      const loadingStrategy = isEager ? "eager" : "lazy";
+      if (isGallery) {
+        return `
+                <div class="swiper-zoom-container" data-type="gallery" data-url="${img.url}">
+                    <div class="gallery-cover-container">
+                        <div class="gallery-cover-title" title="${img.title || "Untitled Gallery"}">${img.title || "Untitled Gallery"}</div>
+                        <a href="${img.url}" target="_blank" class="gallery-cover-link">
+                            <img src="${fullSrc}" alt="${img.title || ""}" decoding="async" loading="${loadingStrategy}" />
+                        </a>
+                    </div>
+                </div>`;
+      } else {
+        return `
+                <div class="swiper-zoom-container" data-type="image">
+                    <img src="${fullSrc}" alt="${img.title || ""}" decoding="async" loading="${loadingStrategy}" style="max-width: 100%; height: auto; display: block; margin: 0 auto;" />
+                </div>`;
+      }
     };
     if (useVirtual) {
       console.log("[Image Deck] Using virtual slides for performance");
       swiperConfig.virtual = {
-        slides: images.map((img, index) => {
-          const fullSrc = img.paths.image;
-          if (img.url) {
-            return `<div class="swiper-zoom-container">
-                        <div class="gallery-cover-container">
-                            <div class="gallery-cover-title" title="${img.title || "Untitled Gallery"}">${img.title || "Untitled Gallery"}</div>
-                            <a href="${img.url}" target="_blank" class="gallery-cover-link">
-                                <img src="${fullSrc}" alt="${img.title || ""}" decoding="async" loading="lazy" />
-                            </a>
-                        </div>
-                    </div>`;
-          } else {
-            return `<div class="swiper-zoom-container"><img src="${fullSrc}" alt="${img.title || ""}" decoding="async" loading="lazy" style="max-width: 100%; height: auto; display: block; margin: 0 auto;" /></div>`;
-          }
-        }),
+        slides: images.map((img) => getSlideTemplate(img, false)),
         cache: true,
+        // Re-enabled cache to prevent the "load nothing" refresh issue
         addSlidesBefore: 2,
         addSlidesAfter: 2,
-        renderSlide: function(slideData) {
-          return `<div class="swiper-slide">${slideData}</div>`;
+        renderSlide: function(slideContent) {
+          return `<div class="swiper-slide">${slideContent}</div>`;
         }
       };
-      swiperConfig.lazy = false;
     } else {
-      images.forEach((img, index) => {
+      images.forEach((img) => {
         const slide = document.createElement("div");
         slide.className = "swiper-slide";
-        const fullSrc = img.paths.image;
-        if (img.url && !contextInfo2?.isSingleGallery) {
-          slide.innerHTML = `
-					<div class="swiper-zoom-container">
-						<div class="gallery-cover-container">
-							<div class="gallery-cover-title" title="${img.title || "Untitled Gallery"}">${img.title || "Untitled Gallery"}</div>
-							<a href="${img.url}" target="_blank" class="gallery-cover-link">
-								<img
-									src="${fullSrc}"
-									alt="${img.title || ""}"
-									decoding="async"
-									loading="eager"
-								>
-							</a>
-						</div>
-					</div>
-				`;
-        } else {
-          slide.innerHTML = `
-					<div class="swiper-zoom-container">
-						<img
-							src="${fullSrc}"
-							alt="${img.title || ""}"
-							decoding="async"
-							loading="eager"
-						>
-					</div>
-				`;
-          const imgEl = slide.querySelector("img");
-          if (imgEl && imgEl.decode) {
-            imgEl.decode().catch(() => {
-            });
-          }
+        slide.innerHTML = getSlideTemplate(img, true);
+        const imgEl = slide.querySelector("img");
+        if (imgEl && imgEl.decode) {
+          imgEl.decode().catch(() => {
+          });
         }
         wrapper.appendChild(slide);
       });
-      swiperConfig.lazy = false;
     }
-    const commonEvents = {
-      slideChange: function() {
-        if (updateUICallback) {
-          updateUICallback(container);
-        }
-        if (savePositionCallback) {
-          savePositionCallback();
+    swiperConfig.on = {
+      click: function(swiper2, event) {
+        const zoomContainer = event.target.closest(".swiper-zoom-container");
+        if (zoomContainer && zoomContainer.dataset.type === "gallery") {
+          const url = zoomContainer.dataset.url;
+          if (url) window.open(url, "_blank");
         }
       },
+      slideChange: function() {
+        if (updateUICallback) updateUICallback(container);
+        if (savePositionCallback) savePositionCallback();
+      },
       reachEnd: function() {
-        console.log("[Image Deck] Reached end of current chunk");
-        const playBtn = document.querySelector('[data-action="play"]');
-        const isAutoPlaying2 = playBtn && playBtn.classList.contains("active");
         const nextChunkBtn = document.querySelector('[data-action="next-chunk"]');
         if (nextChunkBtn && !nextChunkBtn.disabled) {
-          console.log("[Image Deck] Auto-loading next chunk...");
-          setTimeout(() => {
-            nextChunkBtn.click();
-          }, 300);
-        } else if (isAutoPlaying2) {
-          console.log("[Image Deck] No more chunks available, stopping autoplay");
-          const stopAutoPlay2 = () => {
-            if (playBtn) {
-              playBtn.innerHTML = "\u25B6";
-              playBtn.classList.remove("active");
-            }
-            const speedIndicator = document.querySelector(".image-deck-speed");
-            if (speedIndicator) {
-              speedIndicator.classList.remove("visible");
-            }
-          };
-          stopAutoPlay2();
+          setTimeout(() => nextChunkBtn.click(), 300);
         }
       },
       slideChangeTransitionEnd: function() {
         if (this.lazy && this.lazy.load) {
-          setTimeout(() => {
-            this.lazy.load();
-          }, 50);
+          setTimeout(() => this.lazy.load(), 50);
         }
         const currentIndex = this.activeIndex;
-        const totalSlides = this.slides ? this.slides.length : this.virtual ? this.virtual.slides.length : 0;
+        const totalSlides = this.virtual ? this.virtual.slides.length : this.slides.length;
         if (totalSlides > 0 && currentIndex >= totalSlides - 3) {
           const nextChunkBtn = document.querySelector('[data-action="next-chunk"]');
           if (nextChunkBtn && !nextChunkBtn.disabled) {
-            console.log("[Image Deck] Preloading next chunk...");
-            setTimeout(() => {
-              nextChunkBtn.click();
-            }, 1e3);
+            setTimeout(() => nextChunkBtn.click(), 1e3);
           }
         }
       }
     };
-    swiperConfig.on = { ...swiperConfig.on, ...commonEvents };
-    const swiper = new Swiper(container.querySelector(".swiper"), swiperConfig);
+    const swiper = new Swiper(swiperEl, swiperConfig);
     container.querySelector(".image-deck-loading").style.display = "none";
     return swiper;
   }
@@ -1338,56 +1288,92 @@
     }
     if (currentChunkPage >= totalPages && totalPages !== 0) {
       console.log("[Image Deck] All chunks already loaded.");
+      const loadingIndicator2 = document.querySelector(".image-deck-loading");
+      if (loadingIndicator2) {
+        loadingIndicator2.textContent = "All items loaded";
+        setTimeout(() => {
+          loadingIndicator2.style.display = "none";
+        }, 2e3);
+      }
       return;
     }
     isChunkLoading = true;
     const loadingIndicator = document.querySelector(".image-deck-loading");
     const nextChunkButton = document.querySelector('[data-action="next-chunk"]');
+    if (nextChunkButton) {
+      nextChunkButton.disabled = true;
+      nextChunkButton.style.opacity = "0.5";
+    }
     if (loadingIndicator) {
       loadingIndicator.style.display = "block";
-      loadingIndicator.textContent = "Loading next chunk...";
+      loadingIndicator.textContent = `Loading chunk ${currentChunkPage + 1}...`;
     }
     try {
       const contextToUse = storedContextInfo || contextInfo || detectContext();
       if (!contextToUse) throw new Error("Could not detect context for fetching");
-      console.log("[Image Deck] Fetching next chunk for context:", contextToUse.type);
       const nextPage = currentChunkPage + 1;
       const result = await fetchContextImages(contextToUse, nextPage, chunkSize);
-      console.log("[Image Deck] Fetch Result:", result);
       if (!result || !result.images || result.images.length === 0) {
-        if (loadingIndicator) loadingIndicator.textContent = "No more images found";
+        if (loadingIndicator) loadingIndicator.textContent = "No more items found";
+        setTimeout(() => {
+          if (loadingIndicator) loadingIndicator.style.display = "none";
+        }, 2e3);
         return;
       }
       currentImages.push(...result.images);
       currentChunkPage = nextPage;
       totalPages = result.totalPages || totalPages;
-      const container = document.querySelector(".image-deck-container");
-      const galleryGrid = document.querySelector(".gallery-grid");
       if (currentSwiper && currentSwiper.virtual) {
-        const newSlides = result.images.map((img) => `
-                <div class="swiper-zoom-container">
-                    <img src="${img.paths.image}" alt="${img.title || ""}" loading="lazy" />
-                </div>`);
-        currentSwiper.virtual.slides.push(...newSlides);
-        currentSwiper.virtual.update(true);
-      } else if (galleryGrid) {
-        result.images.forEach((img) => {
-          const imgHTML = `
-                    <div class="gallery-item">
-                        <img src="${img.paths.image}" alt="${img.title || ""}" class="gallery-img" />
-                    </div>`;
-          galleryGrid.insertAdjacentHTML("beforeend", imgHTML);
+        const allSlides = currentImages.map((img) => {
+          const fullSrc = img.paths.image;
+          const isGallery = img.url && !contextInfo?.isSingleGallery;
+          if (isGallery) {
+            return `
+                        <div class="swiper-zoom-container" data-type="gallery" data-url="${img.url}">
+                            <div class="gallery-cover-container">
+                                <div class="gallery-cover-title" title="${img.title || "Untitled Gallery"}">${img.title || "Untitled Gallery"}</div>
+                                <a href="${img.url}" target="_blank" class="gallery-cover-link">
+                                    <img src="${fullSrc}" alt="${img.title || ""}" decoding="async" loading="lazy" />
+                                </a>
+                            </div>
+                        </div>`;
+          } else {
+            return `
+                        <div class="swiper-zoom-container" data-type="image">
+                            <img src="${fullSrc}" alt="${img.title || ""}" decoding="async" loading="lazy" style="max-width: 100%; height: auto; display: block; margin: 0 auto;" />
+                        </div>`;
+          }
         });
+        currentSwiper.virtual.slides = allSlides;
+        currentSwiper.virtual.update(true);
+        setTimeout(() => {
+          if (currentSwiper) currentSwiper.update();
+        }, 100);
+      } else {
+        const galleryGrid = document.querySelector(".gallery-grid");
+        if (galleryGrid) {
+          result.images.forEach((img) => {
+            const imgHTML = `<div class="gallery-item"><img src="${img.paths.image}" alt="${img.title || ""}" class="gallery-img" /></div>`;
+            galleryGrid.insertAdjacentHTML("beforeend", imgHTML);
+          });
+        }
       }
-      if (container) updateUI(container);
+      const container = document.querySelector(".image-deck-container");
+      if (container && typeof updateUI === "function") updateUI(container);
       if (loadingIndicator) {
-        loadingIndicator.textContent = `\u2713 Loaded ${result.images.length} new images`;
+        loadingIndicator.textContent = `\u2713 Loaded ${result.images.length} new items`;
         setTimeout(() => {
           loadingIndicator.style.display = "none";
         }, 2e3);
       }
     } catch (error) {
       console.error("[Image Deck] Failed to load chunk:", error);
+      if (loadingIndicator) {
+        loadingIndicator.textContent = "Error: " + error.message;
+        setTimeout(() => {
+          loadingIndicator.style.display = "none";
+        }, 3e3);
+      }
     } finally {
       isChunkLoading = false;
       if (nextChunkButton) {
