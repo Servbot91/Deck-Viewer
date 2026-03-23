@@ -23,12 +23,12 @@
       if (galleryIdMatch) {
         return { type: "galleries", id: galleryIdMatch[1], hash, isSingleGallery: true };
       } else {
-        const filters = parseUrlFilters(search);
+        const filters = parseUrlFilters2(search);
         return { type: "galleries", isGalleryListing: true, filter: filters, hash };
       }
     }
     if (path.startsWith("/images")) {
-      const filters = parseUrlFilters(search);
+      const filters = parseUrlFilters2(search);
       return {
         type: "images",
         isFilteredView: !!search,
@@ -55,23 +55,34 @@
       return {
         type: "images",
         isGeneralListing: true,
-        filter: parseUrlFilters(search),
+        filter: parseUrlFilters2(search),
         // Still try to grab any sort/direction params
         hash
       };
     }
     return null;
   }
-  function parseUrlFilters(search) {
+  function parseUrlFilters2(search) {
     const params = new URLSearchParams(search);
-    const filterParams = [];
-    for (const [key, value] of params.entries()) {
-      if (key === "c") {
-        filterParams.push(value);
+    const cParam = params.get("c");
+    let parsedFilter = {};
+    if (cParam) {
+      try {
+        const jsonString = cParam.replace(/\(/g, "{").replace(/\)/g, "}").replace(/"items":/g, '"value":');
+        const parsed = JSON.parse(jsonString);
+        if (parsed.type && parsed.value) {
+          parsedFilter[parsed.type] = {
+            value: parsed.value.value ? parsed.value.value.map((i) => i.id) : [],
+            modifier: parsed.modifier || "INCLUDES"
+          };
+        }
+      } catch (e) {
+        console.error("[Image Deck] Filter parse error:", e);
       }
     }
     return {
-      rawFilters: filterParams,
+      ...parsedFilter,
+      // Spread the filters (e.g., performers: {...})
       sortBy: params.get("sortby") || "created_at",
       sortDir: params.get("sortdir") || "desc",
       perPage: parseInt(params.get("perPage")) || 40
@@ -99,9 +110,8 @@
   }
   async function fetchContextImages(context, page = 1, perPage = 50) {
     const { type, id, filter, isSingleGallery, isGalleryListing } = context;
-    let query = "";
-    let variables = {};
     const isFetchingGalleries = isGalleryListing || type === "galleries" && !isSingleGallery;
+    let query = "";
     if (isFetchingGalleries) {
       query = `query FindGalleries($filter: FindFilterType!, $gallery_filter: GalleryFilterType) {
             findGalleries(filter: $filter, gallery_filter: $gallery_filter) {
@@ -111,15 +121,6 @@
                 }
             }
         }`;
-      variables = {
-        filter: {
-          per_page: perPage,
-          page,
-          sort: filter?.sortBy || "created_at",
-          direction: (filter?.sortDir || "desc").toUpperCase()
-        },
-        gallery_filter: filter?.gallery_filter || {}
-      };
     } else {
       query = `query FindImages($filter: FindFilterType!, $image_filter: ImageFilterType) {
             findImages(filter: $filter, image_filter: $image_filter) {
@@ -129,37 +130,40 @@
                 }
             }
         }`;
-      let activeImageFilter = {};
-      if (isSingleGallery && id) {
-        activeImageFilter = { galleries: { value: [id], modifier: "INCLUDES" } };
-      } else if (filter) {
-        const allowedFields = [
-          "tags",
-          "performers",
-          "studios",
-          "markers",
-          "galleries",
-          "pht_path",
-          "rating",
-          "organized",
-          "is_missing"
-        ];
-        activeImageFilter = {};
-        allowedFields.forEach((field) => {
-          if (filter[field]) {
-            activeImageFilter[field] = filter[field];
-          }
-        });
+    }
+    const allowedFields = [
+      "tags",
+      "performers",
+      "studios",
+      "markers",
+      "galleries",
+      "pht_path",
+      "rating",
+      "organized",
+      "is_missing"
+    ];
+    let activeFilter = {};
+    if (isSingleGallery && id) {
+      activeFilter = { galleries: { value: [id], modifier: "INCLUDES" } };
+    } else if (filter) {
+      allowedFields.forEach((field) => {
+        if (filter[field]) {
+          activeFilter[field] = filter[field];
+        }
+      });
+    }
+    const variables = {
+      filter: {
+        per_page: perPage,
+        page,
+        sort: filter?.sortBy || "created_at",
+        direction: (filter?.sortDir || "desc").toUpperCase()
       }
-      variables = {
-        filter: {
-          per_page: perPage,
-          page,
-          sort: filter?.sortBy || "created_at",
-          direction: (filter?.sortDir || "desc").toUpperCase()
-        },
-        image_filter: activeImageFilter
-      };
+    };
+    if (isFetchingGalleries) {
+      variables.gallery_filter = activeFilter;
+    } else {
+      variables.image_filter = activeFilter;
     }
     try {
       const response = await fetch("/graphql", {
@@ -1074,28 +1078,19 @@
       console.log("[Image Deck] Plugin config loaded:", pluginConfig);
       injectDynamicStyles(pluginConfig);
       let detectedContext = detectContext();
-      if (window.location.pathname.startsWith("/galleries")) {
-        const galleryIdMatch = window.location.pathname.match(/^\/galleries\/(\d+)/);
-        if (galleryIdMatch) {
-          detectedContext = {
-            type: "galleries",
-            id: galleryIdMatch[1],
-            isSingleGallery: true
-          };
-        } else {
-          detectedContext = {
-            type: "galleries-listing",
-            isGalleryListing: true,
-            queryParams: window.location.search
-          };
-        }
+      if (window.location.pathname === "/galleries" && !detectedContext?.isGalleryListing) {
+        detectedContext = {
+          type: "galleries",
+          isGalleryListing: true,
+          filter: parseUrlFilters(window.location.search)
+          // This is the crucial part
+        };
       }
       storedContextInfo = detectedContext;
       contextInfo = detectedContext;
       console.log("[Image Deck] Context assigned:", contextInfo);
       let imageResult;
-      const isListContext = contextInfo && (contextInfo.isSingleGallery || contextInfo.isGalleryListing || contextInfo.type === "images" || // Added this
-      contextInfo.isFilteredView);
+      const isListContext = contextInfo && (contextInfo.isSingleGallery || contextInfo.isGalleryListing || contextInfo.type === "images" || contextInfo.isFilteredView || window.location.pathname.startsWith("/images"));
       if (isListContext) {
         console.log("[Image Deck] Using context-based fetching for page 1");
         imageResult = await fetchContextImages(contextInfo, 1, chunkSize);
@@ -1470,7 +1465,7 @@
                 role="img">
                 <path d="${svgPath}"/>
             </svg>
-            <span>Image Deck SE</span>
+            <span>Deck Viewer</span>
         </a>
     `;
     const button = buttonContainer.querySelector(`#${buttonId}`);
