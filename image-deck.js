@@ -28,10 +28,6 @@
       if (!settings.effectDepth || settings.effectDepth === 0) settings.effectDepth = 150;
       if (settings.chunkSize === void 0) settings.chunkSize = 30;
       if (settings.lazyLoadThreshold === void 0) settings.lazyLoadThreshold = 2;
-      if (!settings.particleCount || settings.particleCount === 0) settings.particleCount = 80;
-      if (!settings.particleSpeed || settings.particleSpeed === 0) settings.particleSpeed = 1;
-      if (!settings.particleSize || settings.particleSize === 0) settings.particleSize = 1.5;
-      if (!settings.particleColorHue || settings.particleColorHue === 0) settings.particleColorHue = 260;
       if (!settings.ambientColorHue || settings.ambientColorHue === 0) settings.ambientColorHue = 260;
       if (!settings.imageGlowIntensity || settings.imageGlowIntensity === 0) settings.imageGlowIntensity = 40;
       if (!settings.ambientPulseSpeed || settings.ambientPulseSpeed === 0) settings.ambientPulseSpeed = 6;
@@ -50,16 +46,9 @@
         preloadImages: 2,
         swipeResistance: 50,
         effectDepth: 150,
-        particleCount: 80,
-        particleSpeed: 1,
-        particleSize: 1.5,
-        particleColorHue: 260,
         ambientColorHue: 260,
         imageGlowIntensity: 40,
-        ambientPulseSpeed: 6,
-        edgeGlowIntensity: 50,
-        strobeSpeed: 150,
-        strobeIntensity: 60
+        ambientPulseSpeed: 6
       };
     }
   }
@@ -944,83 +933,6 @@
     return swiper;
   }
 
-  // particles.js
-  var particleAnimationId = null;
-  function initParticles(canvas, pluginConfig2) {
-    if (!canvas) return;
-    if (pluginConfig2.particleCount === 0) return;
-    const ctx = canvas.getContext("2d", {
-      alpha: true,
-      desynchronized: true,
-      // Hint for better performance on modern browsers
-      willReadFrequently: false
-    });
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-    const particles = [];
-    const particleCount = pluginConfig2.particleCount;
-    const speedMult = pluginConfig2.particleSpeed;
-    const sizeMult = pluginConfig2.particleSize;
-    const baseHue = pluginConfig2.particleColorHue;
-    class Particle {
-      constructor() {
-        this.reset();
-        this.y = Math.random() * canvas.height;
-        this.opacity = Math.random() * 0.5 + 0.3;
-      }
-      reset() {
-        this.x = Math.random() * canvas.width;
-        this.y = -10;
-        this.speed = (Math.random() * 0.5 + 0.3) * speedMult;
-        this.size = (Math.random() * 2 + 1) * sizeMult;
-        this.opacity = Math.random() * 0.5 + 0.3;
-        this.hue = baseHue + (Math.random() * 40 - 20);
-        this.wobble = Math.random() * 2 - 1;
-        this.wobbleSpeed = Math.random() * 0.02 + 0.01;
-      }
-      update() {
-        this.y += this.speed;
-        this.x += Math.sin(this.y * this.wobbleSpeed) * this.wobble;
-        if (this.y > canvas.height + 10) {
-          this.reset();
-        }
-      }
-      draw() {
-        ctx.shadowBlur = 20;
-        ctx.shadowColor = `hsla(${this.hue}, 70%, 65%, ${this.opacity})`;
-        ctx.fillStyle = `hsla(${this.hue}, 70%, 65%, ${this.opacity})`;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-    for (let i = 0; i < particleCount; i++) {
-      particles.push(new Particle());
-    }
-    function animate() {
-      ctx.globalCompositeOperation = "destination-out";
-      ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.globalCompositeOperation = "source-over";
-      for (let i = 0; i < particles.length; i++) {
-        particles[i].update();
-        particles[i].draw();
-      }
-      particleAnimationId = requestAnimationFrame(animate);
-    }
-    animate();
-    window.addEventListener("resize", () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    });
-  }
-  function stopParticles() {
-    if (particleAnimationId) {
-      cancelAnimationFrame(particleAnimationId);
-      particleAnimationId = null;
-    }
-  }
-
   // ui.js
   var pluginConfig = null;
   var currentSwiper = null;
@@ -1111,14 +1023,11 @@
     const container = document.createElement("div");
     container.className = `image-deck-container${isMobile ? " mobile-optimized" : ""}`;
     container.innerHTML = `
-        <canvas class="image-deck-particles"></canvas>
         <div class="image-deck-ambient"></div>
-        <div class="image-deck-strobe"></div>
         <div class="image-deck-topbar">
             <div class="image-deck-counter"></div>
             <div class="image-deck-topbar-btns">
                 <button class="image-deck-fullscreen" title="Toggle Fullscreen">\u26F6</button>
-                <button class="image-deck-strobe-btn" title="Toggle Strobe">\u26A1</button>
                 <button class="image-deck-close">\u2715</button>
             </div>
         </div>
@@ -1146,41 +1055,7 @@
         </div>
     `;
     document.body.appendChild(container);
-    initParticles(container.querySelector(".image-deck-particles"), pluginConfig);
     return container;
-  }
-  var strobeInterval = null;
-  var isStrobing = false;
-  function toggleStrobe() {
-    isStrobing = !isStrobing;
-    const strobeEl = document.querySelector(".image-deck-strobe");
-    const strobeBtn = document.querySelector(".image-deck-strobe-btn");
-    if (isStrobing) {
-      strobeBtn.classList.add("active");
-      const intensity = pluginConfig.strobeIntensity / 100;
-      strobeInterval = setInterval(() => {
-        if (strobeEl) {
-          strobeEl.style.opacity = intensity;
-          setTimeout(() => {
-            strobeEl.style.opacity = "0";
-          }, 50);
-        }
-      }, pluginConfig.strobeSpeed);
-    } else {
-      strobeBtn.classList.remove("active");
-      if (strobeInterval) {
-        clearInterval(strobeInterval);
-        strobeInterval = null;
-      }
-      if (strobeEl) strobeEl.style.opacity = "0";
-    }
-  }
-  function stopStrobe() {
-    isStrobing = false;
-    if (strobeInterval) {
-      clearInterval(strobeInterval);
-      strobeInterval = null;
-    }
   }
   function toggleFullscreen() {
     const container = document.querySelector(".image-deck-container");
@@ -1670,8 +1545,6 @@
   }
   function closeDeck() {
     stopAutoPlay();
-    stopParticles();
-    stopStrobe();
     const container = document.querySelector(".image-deck-container");
     if (container) {
       container.classList.remove("active");
@@ -1696,10 +1569,6 @@
     const fullscreenBtn = container.querySelector(".image-deck-fullscreen");
     if (fullscreenBtn) {
       fullscreenBtn.addEventListener("click", toggleFullscreen);
-    }
-    const strobeBtn = container.querySelector(".image-deck-strobe-btn");
-    if (strobeBtn) {
-      strobeBtn.addEventListener("click", toggleStrobe);
     }
     const metadataCloseBtn = container.querySelector(".image-deck-metadata-close");
     if (metadataCloseBtn) {

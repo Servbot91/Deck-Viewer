@@ -2,7 +2,6 @@ import { getPluginConfig, injectDynamicStyles, PLUGIN_NAME } from './config.js';
 import { detectContext, fetchContextImages, getVisibleImages, getVisibleGalleryCovers } from './context.js';
 import { fetchImageMetadata, updateImageMetadata, updateImageTags, searchTags } from './graphql.js';
 import { initSwiper } from './swiper.js';
-import { initParticles, stopParticles } from './particles.js';
 import { isMobile, preloadImage, clearImageCache } from './utils.js';
 
 let pluginConfig = null;
@@ -137,14 +136,11 @@ function createDeckUI() {
     const container = document.createElement('div');
     container.className = `image-deck-container${isMobile ? ' mobile-optimized' : ''}`;
     container.innerHTML = `
-        <canvas class="image-deck-particles"></canvas>
         <div class="image-deck-ambient"></div>
-        <div class="image-deck-strobe"></div>
         <div class="image-deck-topbar">
             <div class="image-deck-counter"></div>
             <div class="image-deck-topbar-btns">
                 <button class="image-deck-fullscreen" title="Toggle Fullscreen">⛶</button>
-                <button class="image-deck-strobe-btn" title="Toggle Strobe">⚡</button>
                 <button class="image-deck-close">✕</button>
             </div>
         </div>
@@ -174,49 +170,7 @@ function createDeckUI() {
 
     document.body.appendChild(container);
 
-    // Initialize particles
-    initParticles(container.querySelector('.image-deck-particles'), pluginConfig);
-
     return container;
-}
-
-// Strobe effect
-let strobeInterval = null;
-let isStrobing = false;
-
-function toggleStrobe() {
-    isStrobing = !isStrobing;
-    const strobeEl = document.querySelector('.image-deck-strobe');
-    const strobeBtn = document.querySelector('.image-deck-strobe-btn');
-
-    if (isStrobing) {
-        strobeBtn.classList.add('active');
-        const intensity = pluginConfig.strobeIntensity / 100;
-
-        strobeInterval = setInterval(() => {
-            if (strobeEl) {
-                strobeEl.style.opacity = intensity;
-                setTimeout(() => {
-                    strobeEl.style.opacity = '0';
-                }, 50);
-            }
-        }, pluginConfig.strobeSpeed);
-    } else {
-        strobeBtn.classList.remove('active');
-        if (strobeInterval) {
-            clearInterval(strobeInterval);
-            strobeInterval = null;
-        }
-        if (strobeEl) strobeEl.style.opacity = '0';
-    }
-}
-
-function stopStrobe() {
-    isStrobing = false;
-    if (strobeInterval) {
-        clearInterval(strobeInterval);
-        strobeInterval = null;
-    }
 }
 
 // Fullscreen functionality
@@ -899,8 +853,6 @@ async function loadNextChunk() {
 // Close the deck
 export function closeDeck() {
     stopAutoPlay();
-    stopParticles();
-    stopStrobe();
 
     const container = document.querySelector('.image-deck-container');
     if (container) {
@@ -933,12 +885,6 @@ function setupEventHandlers(container) {
     const fullscreenBtn = container.querySelector('.image-deck-fullscreen');
     if (fullscreenBtn) {
         fullscreenBtn.addEventListener('click', toggleFullscreen);
-    }
-
-    // Strobe button
-    const strobeBtn = container.querySelector('.image-deck-strobe-btn');
-    if (strobeBtn) {
-        strobeBtn.addEventListener('click', toggleStrobe);
     }
 
     // Metadata modal close button

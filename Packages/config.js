@@ -30,10 +30,6 @@ export async function getPluginConfig() {
 		if (settings.lazyLoadThreshold === undefined) settings.lazyLoadThreshold = 2; // Load 2 slides ahead/behind
 		
         // Visual effects defaults (flashier!)
-        if (!settings.particleCount || settings.particleCount === 0) settings.particleCount = 80;
-        if (!settings.particleSpeed || settings.particleSpeed === 0) settings.particleSpeed = 1.0;
-        if (!settings.particleSize || settings.particleSize === 0) settings.particleSize = 1.5;
-        if (!settings.particleColorHue || settings.particleColorHue === 0) settings.particleColorHue = 260; // Purple
         if (!settings.ambientColorHue || settings.ambientColorHue === 0) settings.ambientColorHue = 260;
         if (!settings.imageGlowIntensity || settings.imageGlowIntensity === 0) settings.imageGlowIntensity = 40;
         if (!settings.ambientPulseSpeed || settings.ambientPulseSpeed === 0) settings.ambientPulseSpeed = 6;
@@ -53,16 +49,9 @@ export async function getPluginConfig() {
             preloadImages: 2,
             swipeResistance: 50,
             effectDepth: 150,
-            particleCount: 80,
-            particleSpeed: 1.0,
-            particleSize: 1.5,
-            particleColorHue: 260,
             ambientColorHue: 260,
             imageGlowIntensity: 40,
             ambientPulseSpeed: 6,
-            edgeGlowIntensity: 50,
-            strobeSpeed: 150,
-            strobeIntensity: 60
         };
     }
 }
