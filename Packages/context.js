@@ -91,10 +91,16 @@ function parseUrlFilters(search) {
         }
     }
 
+    // Handle sort direction - if not provided, assume ascending
+    let sortDir = 'asc'; // Default to ascending when not specified
+    if (params.has('sortdir')) {
+        sortDir = params.get('sortdir') || 'asc';
+    }
+
     return {
-        ...parsedFilter, // Spread the filters (e.g., performers: {...})
+        ...parsedFilter,
         sortBy: params.get('sortby') || 'created_at',
-        sortDir: params.get('sortdir') || 'desc',
+        sortDir: sortDir,
         perPage: parseInt(params.get('perPage')) || 40
     };
 }
@@ -169,11 +175,13 @@ export function getVisibleGalleryCovers() {
     });
 
     return galleries;
-}export async function fetchContextImages(context, page = 1, perPage = 50) {
+}
+
+export async function fetchContextImages(context, page = 1, perPage = 50) {
     const { type, id, filter, isSingleGallery, isGalleryListing } = context;
     const isFetchingGalleries = isGalleryListing || (type === 'galleries' && !isSingleGallery);
 
-    // 1. Determine Query
+    // 1. Determine Query - Add performer and tag data for filtering
     let query = '';
     if (isFetchingGalleries) {
         query = `query FindGalleries($filter: FindFilterType!, $gallery_filter: GalleryFilterType) {
@@ -181,6 +189,12 @@ export function getVisibleGalleryCovers() {
                 count
                 galleries {
                     id title cover { paths { thumbnail image } }
+                    performers {
+                        id
+                    }
+                    tags {
+                        id
+                    }
                 }
             }
         }`;
@@ -190,26 +204,81 @@ export function getVisibleGalleryCovers() {
                 count
                 images {
                     id title paths { thumbnail image }
+                    performers {
+                        id
+                    }
+                    tags {
+                        id
+                    }
                 }
             }
         }`;
     }
 
-    // 2. Build the active filter object
-    const allowedFields = [
-        'tags', 'performers', 'studios', 'markers', 'galleries', 
-        'pht_path', 'rating', 'organized', 'is_missing'
-    ];
-
+    // 2. Build the active filter object and collect exclusions
     let activeFilter = {};
+    let exclusions = {}; // Store all exclusions by type
+    
     if (isSingleGallery && id) {
         activeFilter = { galleries: { value: [id], modifier: "INCLUDES" } };
     } else if (filter) {
-        allowedFields.forEach(field => {
-            if (filter[field]) {
-                activeFilter[field] = filter[field];
-            }
-        });
+        if (isFetchingGalleries) {
+            // Gallery-specific allowed fields
+            const galleryAllowedFields = [
+                'tags', 'performers', 'studios', 'markers', 'path', 
+                'rating100', 'organized', 'is_missing', 'image_count',
+                'date', 'url', 'photographer', 'code'
+            ];
+            
+            galleryAllowedFields.forEach(field => {
+                if (filter[field]) {
+                    // Handle exclusions for any field type
+                    if (filter[field].excluded && filter[field].excluded.length > 0) {
+                        exclusions[field] = filter[field].excluded;
+                        // Still apply the main filter if there are positive includes
+                        if (filter[field].value && filter[field].value.length > 0) {
+                            activeFilter[field] = {
+                                value: filter[field].value,
+                                modifier: filter[field].modifier
+                            };
+                        }
+                    } else {
+                        // Handle other fields normally
+                        activeFilter[field] = {
+                            value: filter[field].value,
+                            modifier: filter[field].modifier
+                        };
+                    }
+                }
+            });
+        } else {
+            // Image-specific allowed fields
+            const imageAllowedFields = [
+                'tags', 'performers', 'studios', 'markers', 'galleries', 
+                'path', 'rating100', 'organized', 'is_missing'
+            ];
+            
+            imageAllowedFields.forEach(field => {
+                if (filter[field]) {
+                    // Handle exclusions for any field type
+                    if (filter[field].excluded && filter[field].excluded.length > 0) {
+                        exclusions[field] = filter[field].excluded;
+                        // Still apply the main filter if there are positive includes
+                        if (filter[field].value && filter[field].value.length > 0) {
+                            activeFilter[field] = {
+                                value: filter[field].value,
+                                modifier: filter[field].modifier
+                            };
+                        }
+                    } else {
+                        activeFilter[field] = {
+                            value: filter[field].value,
+                            modifier: filter[field].modifier
+                        };
+                    }
+                }
+            });
+        }
     }
 
     // 3. Prepare GraphQL Variables
@@ -248,19 +317,75 @@ export function getVisibleGalleryCovers() {
         let totalCount = 0;
 
         if (isFetchingGalleries) {
-            const result = data?.data?.findGalleries;
+            let result = data?.data?.findGalleries;
             totalCount = result?.count || 0;
-            normalizedImages = (result?.galleries || []).map(g => ({
-                id: g.id,
-                title: g.title,
+            
+            // Apply client-side filtering for all exclusions
+            if (Object.keys(exclusions).length > 0 && result?.galleries) {
+                result.galleries = result.galleries.filter(item => {
+                    // Check each exclusion type
+                    for (const [fieldType, excludedIds] of Object.entries(exclusions)) {
+                        if (excludedIds.length > 0) {
+                            // Check if item has the field and any excluded values
+                            if (item[fieldType] && item[fieldType].length > 0) {
+                                // Check if any item in the field is in the exclusion list
+                                const hasExcludedItem = item[fieldType].some(fieldItem => 
+                                    excludedIds.includes(fieldItem.id)
+                                );
+                                
+                                // If we find any excluded item, exclude this gallery
+                                if (hasExcludedItem) {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                    return true; // Include if no exclusions apply
+                });
+                
+                // Update count after filtering
+                totalCount = result.galleries.length;
+            }
+            
+            normalizedImages = (result?.galleries || []).map(gallery => ({
+                id: gallery.id,
+                title: gallery.title,
                 isGallery: true,
                 type: 'gallery',
-                paths: { image: g.cover?.paths?.image || g.cover?.paths?.thumbnail || '' },
-                url: `/galleries/${g.id}`
+                paths: { image: gallery.cover?.paths?.image || gallery.cover?.paths?.thumbnail || '' },
+                url: `/galleries/${gallery.id}`
             }));
         } else {
-            const result = data?.data?.findImages;
+            let result = data?.data?.findImages;
             totalCount = result?.count || 0;
+            
+            // Apply client-side filtering for all exclusions
+            if (Object.keys(exclusions).length > 0 && result?.images) {
+                result.images = result.images.filter(item => {
+                    // Check each exclusion type
+                    for (const [fieldType, excludedIds] of Object.entries(exclusions)) {
+                        if (excludedIds.length > 0) {
+                            // Check if item has the field and any excluded values
+                            if (item[fieldType] && item[fieldType].length > 0) {
+                                // Check if any item in the field is in the exclusion list
+                                const hasExcludedItem = item[fieldType].some(fieldItem => 
+                                    excludedIds.includes(fieldItem.id)
+                                );
+                                
+                                // If we find any excluded item, exclude this image
+                                if (hasExcludedItem) {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                    return true; // Include if no exclusions apply
+                });
+                
+                // Update count after filtering
+                totalCount = result.images.length;
+            }
+            
             normalizedImages = (result?.images || []).map(img => ({
                 ...img,
                 isGallery: false,
