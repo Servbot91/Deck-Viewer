@@ -1,6 +1,7 @@
-name: Image Deck
-description: Swipeable fullscreen image deck viewer with one-handed controls, auto-play, and customizable visual effects
-version: 1.1.0
+name: Deck Viewer
+description: Deck Viewer is a one handed image viewer for Stash that makes navigating images and galleries much more convenient.
+version: 1.0
+
 settings:
   # Playback settings
   autoPlayInterval:
@@ -72,16 +73,6 @@ settings:
   edgeGlowIntensity:
     displayName: Edge Glow Intensity
     description: 'Intensity of edge glow (0-100, default: 50)'
-    type: NUMBER
-
-  # Strobe settings
-  strobeSpeed:
-    displayName: Strobe Speed (when enabled)
-    description: 'Strobe flash speed in milliseconds (50-1000, default: 150)'
-    type: NUMBER
-  strobeIntensity:
-    displayName: Strobe Intensity
-    description: 'Strobe brightness (10-100, default: 60)'
     type: NUMBER
 
 ui:
