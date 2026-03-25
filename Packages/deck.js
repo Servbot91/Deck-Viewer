@@ -156,6 +156,28 @@ export async function openDeck() {
         window.currentSwiperInstance = currentSwiper;
         window.currentImages = currentImages;
         setCurrentSwiper(currentSwiper);
+        
+        // Add zoom event listeners for UI fading
+        if (currentSwiper) {
+            currentSwiper.on('zoomChange', (swiper, scale) => {
+                const topBar = container.querySelector('.image-deck-topbar');
+                const controls = container.querySelector('.image-deck-controls');
+                const speedIndicator = container.querySelector('.image-deck-speed');
+                
+                if (scale > 1) {
+                    // Fade out UI elements when zoomed in
+                    if (topBar) topBar.style.opacity = '0';
+                    if (controls) controls.style.opacity = '0';
+                    if (speedIndicator) speedIndicator.style.opacity = '0';
+                } else {
+                    // Fade in UI elements when zoomed out
+                    if (topBar) topBar.style.opacity = '1';
+                    if (controls) controls.style.opacity = '1';
+                    if (speedIndicator) speedIndicator.style.opacity = '1';
+                }
+            });
+        }
+        
         // Restore position
         restorePosition();
 
@@ -195,14 +217,18 @@ function createDeckUI() {
         <div class="image-deck-swiper swiper">
             <div class="swiper-wrapper"></div>
         </div>
-        <div class="image-deck-controls">
-            <button class="image-deck-control-btn" data-action="prev">◀</button>
-            <button class="image-deck-control-btn" data-action="play">▶</button>
-            <button class="image-deck-control-btn" data-action="next">▶</button>
-            <button class="image-deck-control-btn image-deck-info-btn" data-action="info" title="Image Info (I)">ℹ</button>
-            <button class="image-deck-control-btn" data-action="zoom-in" title="Zoom In (+)">+</button>
-            <button class="image-deck-control-btn" data-action="zoom-out" title="Zoom Out (-)">-</button>
-            <button class="image-deck-control-btn" data-action="next-chunk" title="Load Next Chunk">⏭️</button>
+        <div class="image-deck-controls-wrapper">
+            <div class="image-deck-zoom-controls">
+                <button class="image-deck-control-btn" data-action="zoom-in" title="Zoom In (+)">+</button>
+                <button class="image-deck-control-btn" data-action="zoom-out" title="Zoom Out (-)">-</button>
+            </div>
+            <div class="image-deck-navigation-controls">
+                <button class="image-deck-control-btn" data-action="prev">◀</button>
+                <button class="image-deck-control-btn" data-action="play">▶</button>
+                <button class="image-deck-control-btn" data-action="next">▶</button>
+                <button class="image-deck-control-btn image-deck-info-btn" data-action="info" title="Image Info (I)">ℹ</button>
+                <button class="image-deck-control-btn" data-action="next-chunk" title="Load Next Chunk">⏭️</button>
+            </div>
         </div>
         <div class="image-deck-speed">Speed: ${pluginConfig.autoPlayInterval}ms</div>
         <div class="image-deck-metadata-modal">

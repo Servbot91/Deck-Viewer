@@ -97,43 +97,43 @@ export function setupEventHandlers(container) {
     // Control buttons
     const controlButtons = container.querySelectorAll('.image-deck-control-btn');
 
-    controlButtons.forEach(button => {
-        button.addEventListener('click', (e) => {
-            const action = button.dataset.action;
-            const swiper = window.currentSwiperInstance;
+	controlButtons.forEach(button => {
+		button.addEventListener('click', (e) => {
+			const action = button.dataset.action;
+			const swiper = window.currentSwiperInstance;
 
-            if (!action) return;
+			if (!action) return;
 
-            switch(action) {
-                case 'prev':
-                    if (swiper) {
-                        swiper.slidePrev();
-                    } else {
-                        console.error('[Image Deck] Prev failed: window.currentSwiperInstance is not defined');
-                    }
-                    break;
-                case 'next':
-                    if (swiper) {
-                        swiper.slideNext();
-                        setTimeout(() => {
-                            loadNextChunk();
-                        }, 100);
-                    } else {
-                        console.error('[Image Deck] Next failed: window.currentSwiperInstance is not defined');
-                    }
-                    break;
-                case 'play':
-                    const playBtn = document.querySelector('[data-action="play"]');
-                    const isAutoPlaying = playBtn && playBtn.classList.contains('active');
-                    if (isAutoPlaying) {
-                        stopAutoPlay();
-                    } else {
-                        startAutoPlay();
-                    }
-                    break;
-                case 'info':
-                    openMetadataModal();
-                    break;
+			switch(action) {
+				case 'prev':
+					if (swiper) {
+						swiper.slidePrev();
+					} else {
+						console.error('[Image Deck] Prev failed: window.currentSwiperInstance is not defined');
+					}
+					break;
+				case 'next':
+					if (swiper) {
+						swiper.slideNext();
+						setTimeout(() => {
+							loadNextChunk();
+						}, 100);
+					} else {
+						console.error('[Image Deck] Next failed: window.currentSwiperInstance is not defined');
+					}
+					break;
+				case 'play':
+					const playBtn = document.querySelector('[data-action="play"]');
+					const isAutoPlaying = playBtn && playBtn.classList.contains('active');
+					if (isAutoPlaying) {
+						stopAutoPlay();
+					} else {
+						startAutoPlay();
+					}
+					break;
+				case 'info':
+					openMetadataModal();
+					break;
 				case 'zoom-in':
 					// Check if current slide is a gallery
 					if (swiper && swiper.zoom && !isCurrentSlideGallery()) {
@@ -146,20 +146,14 @@ export function setupEventHandlers(container) {
 						swiper.zoom.out();
 					}
 					break;
-				case 'zoom-reset':
-					// Check if current slide is a gallery
-					if (swiper && swiper.zoom && !isCurrentSlideGallery()) {
-						swiper.zoom.reset();
-					}
+				case 'next-chunk':
+					loadNextChunk(container);
 					break;
-								case 'next-chunk':
-									loadNextChunk(container);
-									break;
-								default:
-									console.log('[Image Deck] Unknown action:', action);
-							}
-						});
-					});
+				default:
+					console.log('[Image Deck] Unknown action:', action);
+			}
+		});
+	});
 
     // Add slide change listener to update gallery state
     if (window.currentSwiperInstance) {

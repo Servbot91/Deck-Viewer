@@ -457,6 +457,54 @@
             );
         }
         
+        /* New control layout styles */
+        .image-deck-controls-wrapper {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            z-index: 1002;
+        }
+        
+        .image-deck-zoom-controls {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .image-deck-navigation-controls {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .image-deck-control-btn {
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.2s ease;
+            backdrop-filter: blur(5px);
+        }
+        
+        .image-deck-control-btn:hover {
+            background: rgba(50, 50, 50, 0.9);
+            transform: scale(1.1);
+        }
+        
+        .image-deck-control-btn:active {
+            transform: scale(0.95);
+        }
+        
         /* Gallery cover styles */
         .gallery-cover-container {
             display: flex;
@@ -485,8 +533,8 @@
         .gallery-cover-link {
             display: inline-block;
             max-width: 300px;
-            max-height: 500px; /* Increased height by ~200px */
-            aspect-ratio: 3 / 5; /* More rectangular shape */
+            max-height: 500px;
+            aspect-ratio: 3 / 5;
             border: 3px solid #6a5acd;
             border-radius: 8px;
             box-shadow: 0 0 15px rgba(106, 90, 205, 0.7);
@@ -523,6 +571,12 @@
                 font-size: 14px;
                 padding: 4px 8px;
             }
+            
+            .image-deck-control-btn {
+                width: 35px;
+                height: 35px;
+                font-size: 14px;
+            }
         }
         
         @media (max-width: 480px) {
@@ -539,6 +593,19 @@
                 font-size: 12px;
                 padding: 3px 6px;
             }
+            
+            .image-deck-control-btn {
+                width: 30px;
+                height: 30px;
+                font-size: 12px;
+            }
+        }
+        
+        /* Transition for fading UI elements */
+        .image-deck-topbar,
+        .image-deck-controls-wrapper,
+        .image-deck-speed {
+            transition: opacity 0.3s ease;
         }
     `;
   }
@@ -1136,11 +1203,6 @@
               swiper.zoom.out();
             }
             break;
-          case "zoom-reset":
-            if (swiper && swiper.zoom && !isCurrentSlideGallery()) {
-              swiper.zoom.reset();
-            }
-            break;
           case "next-chunk":
             loadNextChunk(container2);
             break;
@@ -1478,6 +1540,22 @@
       window.currentSwiperInstance = currentSwiper;
       window.currentImages = currentImages;
       setCurrentSwiper(currentSwiper);
+      if (currentSwiper) {
+        currentSwiper.on("zoomChange", (swiper, scale) => {
+          const topBar = container2.querySelector(".image-deck-topbar");
+          const controls = container2.querySelector(".image-deck-controls");
+          const speedIndicator = container2.querySelector(".image-deck-speed");
+          if (scale > 1) {
+            if (topBar) topBar.style.opacity = "0";
+            if (controls) controls.style.opacity = "0";
+            if (speedIndicator) speedIndicator.style.opacity = "0";
+          } else {
+            if (topBar) topBar.style.opacity = "1";
+            if (controls) controls.style.opacity = "1";
+            if (speedIndicator) speedIndicator.style.opacity = "1";
+          }
+        });
+      }
       restorePosition();
       updateUI(container2);
       Promise.resolve().then(() => (init_controls(), controls_exports)).then((module) => {
@@ -1507,14 +1585,18 @@
         <div class="image-deck-swiper swiper">
             <div class="swiper-wrapper"></div>
         </div>
-        <div class="image-deck-controls">
-            <button class="image-deck-control-btn" data-action="prev">\u25C0</button>
-            <button class="image-deck-control-btn" data-action="play">\u25B6</button>
-            <button class="image-deck-control-btn" data-action="next">\u25B6</button>
-            <button class="image-deck-control-btn image-deck-info-btn" data-action="info" title="Image Info (I)">\u2139</button>
-            <button class="image-deck-control-btn" data-action="zoom-in" title="Zoom In (+)">+</button>
-            <button class="image-deck-control-btn" data-action="zoom-out" title="Zoom Out (-)">-</button>
-            <button class="image-deck-control-btn" data-action="next-chunk" title="Load Next Chunk">\u23ED\uFE0F</button>
+        <div class="image-deck-controls-wrapper">
+            <div class="image-deck-zoom-controls">
+                <button class="image-deck-control-btn" data-action="zoom-in" title="Zoom In (+)">+</button>
+                <button class="image-deck-control-btn" data-action="zoom-out" title="Zoom Out (-)">-</button>
+            </div>
+            <div class="image-deck-navigation-controls">
+                <button class="image-deck-control-btn" data-action="prev">\u25C0</button>
+                <button class="image-deck-control-btn" data-action="play">\u25B6</button>
+                <button class="image-deck-control-btn" data-action="next">\u25B6</button>
+                <button class="image-deck-control-btn image-deck-info-btn" data-action="info" title="Image Info (I)">\u2139</button>
+                <button class="image-deck-control-btn" data-action="next-chunk" title="Load Next Chunk">\u23ED\uFE0F</button>
+            </div>
         </div>
         <div class="image-deck-speed">Speed: ${pluginConfig.autoPlayInterval}ms</div>
         <div class="image-deck-metadata-modal">

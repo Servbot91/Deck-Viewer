@@ -107,6 +107,54 @@ export function injectDynamicStyles(settings) {
             );
         }
         
+        /* New control layout styles */
+        .image-deck-controls-wrapper {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            z-index: 1002;
+        }
+        
+        .image-deck-zoom-controls {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .image-deck-navigation-controls {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .image-deck-control-btn {
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.2s ease;
+            backdrop-filter: blur(5px);
+        }
+        
+        .image-deck-control-btn:hover {
+            background: rgba(50, 50, 50, 0.9);
+            transform: scale(1.1);
+        }
+        
+        .image-deck-control-btn:active {
+            transform: scale(0.95);
+        }
+        
         /* Gallery cover styles */
         .gallery-cover-container {
             display: flex;
@@ -135,8 +183,8 @@ export function injectDynamicStyles(settings) {
         .gallery-cover-link {
             display: inline-block;
             max-width: 300px;
-            max-height: 500px; /* Increased height by ~200px */
-            aspect-ratio: 3 / 5; /* More rectangular shape */
+            max-height: 500px;
+            aspect-ratio: 3 / 5;
             border: 3px solid #6a5acd;
             border-radius: 8px;
             box-shadow: 0 0 15px rgba(106, 90, 205, 0.7);
@@ -173,6 +221,12 @@ export function injectDynamicStyles(settings) {
                 font-size: 14px;
                 padding: 4px 8px;
             }
+            
+            .image-deck-control-btn {
+                width: 35px;
+                height: 35px;
+                font-size: 14px;
+            }
         }
         
         @media (max-width: 480px) {
@@ -189,6 +243,19 @@ export function injectDynamicStyles(settings) {
                 font-size: 12px;
                 padding: 3px 6px;
             }
+            
+            .image-deck-control-btn {
+                width: 30px;
+                height: 30px;
+                font-size: 12px;
+            }
+        }
+        
+        /* Transition for fading UI elements */
+        .image-deck-topbar,
+        .image-deck-controls-wrapper,
+        .image-deck-speed {
+            transition: opacity 0.3s ease;
         }
     `;
 }
