@@ -1,6 +1,7 @@
-name: Image Deck
-description: Swipeable fullscreen image deck viewer with one-handed controls, auto-play, and customizable visual effects
-version: 1.1.0
+name: Deck Viewer
+description: An optimized fullscreen image viewer with one-handed controls complete with performer, gallery, and image integration that hijacks the default stash viewbox.
+version: 1.0
+
 settings:
   # Playback settings
   autoPlayInterval:
@@ -87,10 +88,10 @@ settings:
 ui:
   javascript:
     - https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js
-    - image-deck.js
+    - deck-viewer.js
   css:
     - https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css
-    - image-deck.css
+    - deck-viewer-styling.css
   csp:
     script-src:
       - https://cdn.jsdelivr.net

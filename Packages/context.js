@@ -11,15 +11,23 @@ export function detectContext() {
     }
 
     // 2. Check for Gallery Contexts
-    if (path.startsWith('/galleries')) {
-        const galleryIdMatch = path.match(/^\/galleries\/(\d+)/);
-        if (galleryIdMatch) {
-            return { type: 'galleries', id: galleryIdMatch[1], hash, isSingleGallery: true };
-        } else {
-            const filters = parseUrlFilters(search);
-            return { type: 'galleries', isGalleryListing: true, filter: filters, hash };
-        }
-    }
+	if (path.startsWith('/galleries')) {
+		const galleryIdMatch = path.match(/^\/galleries\/(\d+)/);
+		const params = new URLSearchParams(search);
+		
+		if (galleryIdMatch) {
+			const filter = parseUrlFilters(search);
+			// For single gallery views, if no sort is specified, default to title asc
+			if (!params.get('sortby') && !params.get('sortdir')) {
+				filter.sortBy = 'title';
+				filter.sortDir = 'asc';
+			}
+			return { type: 'galleries', id: galleryIdMatch[1], hash, isSingleGallery: true, filter };
+		} else {
+			const filters = parseUrlFilters(search);
+			return { type: 'galleries', isGalleryListing: true, filter: filters, hash };
+		}
+	}
 
     // 3. Handle /images page (with OR without search params)
     if (path.startsWith('/images')) {
@@ -146,32 +154,37 @@ function parseUrlFilters(search) {
 // Get visible images from current page
 export function getVisibleImages() {
     const images = [];
-    // Target only the main image grid, not sidebar or header images
     const imageGrid = document.querySelector('.main-content, [role="main"]') || document.body;
     const imageElements = imageGrid.querySelectorAll('.image-card img, .grid-card img');
 
-    imageElements.forEach((img, index) => {
-        // Exclude studio logos and other non-content images
+    // Convert NodeList to Array to preserve order
+    const imageArray = Array.from(imageElements);
+
+    imageArray.forEach((img, index) => {
         if (img.src && 
             img.src.includes('/image/') && 
             !img.src.includes('/studio/') && 
             !img.closest('.logo, .sidebar, .header')) {
             
-            // Extract image ID from src if possible
             const idMatch = img.src.match(/\/image\/(\d+)/);
             const id = idMatch ? idMatch[1] : `img_${index}`;
 
-            // Convert thumbnail URLs to full image URLs
             const fullImageUrl = img.src.includes('/thumbnail/')
                 ? img.src.replace('/thumbnail/', '/image/')
                 : img.src;
+
+            // Find the preview button associated with this image
+            const card = img.closest('.image-card, .grid-card');
+            const previewButton = card?.querySelector('.preview-button');
 
             images.push({
                 id,
                 title: img.alt || `Image ${index + 1}`,
                 paths: {
                     image: fullImageUrl
-                }
+                },
+                // Store reference to preview button
+                previewButton: previewButton
             });
         }
     });

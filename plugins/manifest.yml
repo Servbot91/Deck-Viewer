@@ -1,8 +1,8 @@
-- id: id-senpai-edition
-  name: Image Deck Senpai Edition
+- id: deck-viewer
+  name: Deck Viewer
   metadata:
-    description: A stable and maintained version of the original Image Deck plugin.
-  version: 1.0
-  date: 2026-03-21 21:36:53
+    description: An optimized single-hand gallery and image viewer for stash.
+  version: 1.0B
+  date: 2026-03-25 21:36:53
   path: https://pathtolink
   sha256: sha94494949049494944949

@@ -1,11 +1,11 @@
-# Deck Viewer Plugin for Stash
+# Deck Viewer for Stash
 
 ## Overview
 
-Deck Viewer transforms your Stash media library into an immersive slideshow experience. Browse through images and galleries with smooth transitions, intuitive controls, and powerful organizational tools - all within your browser.
+Deck Viewer is a complete rework and reimagination of the original Image-Deck plugin that hijacks the built in stash image viewer. I have commandeered image-decks base code and have brought it up to a stable and functional standard with enhanced features, a ton of QOL improvements, bug fixes, and optimization. It is meant be used solely over the built in image viewbox and also adds a gallery viewbox. The plugin design is intended to make browsing galleries and images more streamlined and less error prone to accidental clicks\swipes and to futher optimize one hand browsing. There may be some references to image-deck in my code only because I couldn't be bothered. I prioritize functionality and quality over minor trivial cosmetics. 
 
-Whether you're showcasing your collection, reviewing content, or simply enjoying your media, Deck Viewer provides a cinematic viewing experience that makes navigating your stash effortless and enjoyable.
-
+Deck Viewer was written with AI assistance (qwen3-coder:480b, and my local qwen3-coder30b) following general Dev standards and hygeine while also protecting integrity of the plugin with simple A\B testing and versioning. You can view the git commits and merge history to verify this information. Everything was tested then started again with new context from scratch if there was any hallucination or AI rabbit holes. This approach has maintained plugin functionality while minimizing bloat however I will concede there is still plenty of optimization to be had which will be addressed at a later date.
+--- 
 ## Features
 
 ### 🎬 Immersive Viewing Experience

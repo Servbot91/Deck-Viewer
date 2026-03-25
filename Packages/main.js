@@ -1,11 +1,15 @@
-import { initialize } from './ui.js';
+import { initialize, initPlugin } from './ui.js';
 import './styles.css';
 
 // Initialize when DOM is ready
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initialize);
+    document.addEventListener('DOMContentLoaded', () => {
+        initialize();
+        initPlugin(); // Call initPlugin to start the observer
+    });
 } else {
     initialize();
+    initPlugin(); // Call initPlugin to start the observer
 }
 
 // Track last URL to detect changes
