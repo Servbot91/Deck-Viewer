@@ -2,6 +2,9 @@
 import { closeDeck, startAutoPlay, stopAutoPlay, loadNextChunk } from './deck.js';
 import { openMetadataModal, closeMetadataModal } from './metadata.js';
 
+let isDeckActive = false;
+let keyboardHandler = null;
+
 // Fullscreen functionality
 function toggleFullscreen() {
     const container = document.querySelector('.image-deck-container');
@@ -16,14 +19,44 @@ function toggleFullscreen() {
     }
 }
 
+// Helper function to check if current slide is a gallery
+function isCurrentSlideGallery() {
+    const swiper = window.currentSwiperInstance;
+    if (swiper && swiper.slides) {
+        const activeSlide = swiper.slides[swiper.activeIndex];
+        if (activeSlide) {
+            const zoomContainer = activeSlide.querySelector('.swiper-zoom-container');
+            if (zoomContainer && zoomContainer.dataset.type === 'gallery') {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Function to update the gallery state class
+function updateGalleryStateClass() {
+    const container = document.querySelector('.image-deck-container');
+    if (!container) return;
+    
+    if (isCurrentSlideGallery()) {
+        container.classList.add('gallery-active');
+    } else {
+        container.classList.remove('gallery-active');
+    }
+}
+
 // Setup event handlers
 export function setupEventHandlers(container) {
+    // Set deck as active when handlers are set up
+    setDeckActive(true);
+    
     // Close button
     const closeBtn = container.querySelector('.image-deck-close');
     if (closeBtn) {
         closeBtn.addEventListener('click', closeDeck);
     }
-
+    
     // Fullscreen button
     const fullscreenBtn = container.querySelector('.image-deck-fullscreen');
     if (fullscreenBtn) {
@@ -36,14 +69,13 @@ export function setupEventHandlers(container) {
         metadataCloseBtn.addEventListener('click', closeMetadataModal);
     }
 
-// Control buttons
+    // Control buttons
     const controlButtons = container.querySelectorAll('.image-deck-control-btn');
-    
+
     controlButtons.forEach(button => {
         button.addEventListener('click', (e) => {
             const action = button.dataset.action;
-            // CORRECTED: Fetch swiper from the global window object every time a button is clicked
-            const swiper = window.currentSwiperInstance; 
+            const swiper = window.currentSwiperInstance;
 
             if (!action) return;
 
@@ -58,7 +90,6 @@ export function setupEventHandlers(container) {
                 case 'next':
                     if (swiper) {
                         swiper.slideNext();
-                        // Use the imported loadNextChunk function
                         setTimeout(() => {
                             loadNextChunk();
                         }, 100);
@@ -78,6 +109,24 @@ export function setupEventHandlers(container) {
                 case 'info':
                     openMetadataModal();
                     break;
+                case 'zoom-in':
+                    // Only allow zoom on non-gallery slides
+                    if (swiper && swiper.zoom && !isCurrentSlideGallery()) {
+                        swiper.zoom.in();
+                    }
+                    break;
+                case 'zoom-out':
+                    // Only allow zoom on non-gallery slides
+                    if (swiper && swiper.zoom && !isCurrentSlideGallery()) {
+                        swiper.zoom.out();
+                    }
+                    break;
+                case 'zoom-reset':
+                    // Only allow zoom on non-gallery slides
+                    if (swiper && swiper.zoom && !isCurrentSlideGallery()) {
+                        swiper.zoom.reset();
+                    }
+                    break;
                 case 'next-chunk':
                     loadNextChunk();
                     break;
@@ -87,11 +136,26 @@ export function setupEventHandlers(container) {
         });
     });
 
-// Keyboard controls
-    document.addEventListener('keydown', handleKeyboard);
+    // Add slide change listener to update gallery state
+    if (window.currentSwiperInstance) {
+        window.currentSwiperInstance.on('slideChangeTransitionEnd', function() {
+            updateGalleryStateClass();
+        });
+        
+        // Initial check for first slide
+        setTimeout(() => {
+            updateGalleryStateClass();
+        }, 0);
+    }
 
-    // Swipe gestures logic (unchanged from your original)
+    // Keyboard controls - use capturing phase to intercept before other handlers
+    keyboardHandler = handleKeyboard;
+    document.addEventListener('keydown', handleKeyboard, true);
+    
+    // Swipe gestures logic
     setupSwipeGestures(container);
+    // Mouse wheel support
+    setupMouseWheel(container);
 }
 
 // Extracted swipe logic to keep setup clean
@@ -134,12 +198,62 @@ function setupSwipeGestures(container) {
     }, { passive: true });
 }
 
+function setupMouseWheel(container) {
+    // Mouse wheel support - attach directly to the swiper element
+    const swiperEl = container.querySelector('.image-deck-swiper');
+    if (!swiperEl) return;
+
+    swiperEl.addEventListener('wheel', (e) => {
+        //Fetch swiper from the global window object every time
+        const swiper = window.currentSwiperInstance;
+        if (!swiper) return;
+
+        // Prevent default scrolling behavior
+        e.preventDefault();
+        
+        // Debounce rapid wheel events
+        if (swiper.wheeling) return;
+        swiper.wheeling = true;
+        
+        // Determine scroll direction
+        if (e.deltaY > 0) {
+            // Scroll down - next slide
+            swiper.slideNext();
+        } else if (e.deltaY < 0) {
+            // Scroll up - prev slide
+            swiper.slidePrev();
+        }
+        
+        // Reset wheeling flag after a short delay
+        setTimeout(() => {
+            if (swiper) swiper.wheeling = false;
+        }, 150);
+    }, { passive: false });
+}
+
+export function setDeckActive(active) {
+    isDeckActive = active;
+}
+
 // Keyboard handler
 function handleKeyboard(e) {
+    // Only handle keyboard events when deck is active
+    if (!isDeckActive) return;
+    
+    // Always prevent default for these keys when deck is active
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' ', 'Escape', '+', '-', '0'].includes(e.key)) {
+        e.preventDefault();
+        e.stopPropagation(); // Stop event from bubbling up
+    }
+    
     const swiper = window.currentSwiperInstance;
-
+    
+    // Skip if typing in input fields
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-        if (e.key === 'Escape') closeMetadataModal();
+        if (e.key === 'Escape') {
+            closeMetadataModal();
+            return;
+        }
         return;
     }
 
@@ -154,6 +268,7 @@ function handleKeyboard(e) {
             break;
         case ' ':
             e.preventDefault();
+            e.stopPropagation();
             const playBtn = document.querySelector('[data-action="play"]');
             if (playBtn && playBtn.classList.contains('active')) {
                 stopAutoPlay();
@@ -164,6 +279,7 @@ function handleKeyboard(e) {
         case 'i':
         case 'I':
             e.preventDefault();
+            e.stopPropagation();
             const metadataModal = document.querySelector('.image-deck-metadata-modal');
             if (metadataModal && metadataModal.classList.contains('active')) {
                 closeMetadataModal();
@@ -171,15 +287,63 @@ function handleKeyboard(e) {
                 openMetadataModal();
             }
             break;
-        // ADDED: Arrow Key Support
-        case 'ArrowLeft':
-            if (swiper) swiper.slidePrev();
-            break;
-        case 'ArrowRight':
-            if (swiper) {
-                swiper.slideNext();
-                setTimeout(() => loadNextChunk(), 100);
+        // ZOOM CONTROLS
+        case '+':
+        case '=':
+            e.preventDefault();
+            if (swiper && swiper.zoom && !isCurrentSlideGallery()) {
+                swiper.zoom.in();
             }
             break;
+        case '-':
+        case '_':
+            e.preventDefault();
+            if (swiper && swiper.zoom && !isCurrentSlideGallery()) {
+                swiper.zoom.out();
+            }
+            break;
+        case '0':
+            e.preventDefault();
+            if (swiper && swiper.zoom && !isCurrentSlideGallery()) {
+                swiper.zoom.reset();
+            }
+            break;
+        // ARROW KEY SUPPORT
+        case 'ArrowLeft':
+            e.preventDefault();
+            e.stopPropagation();
+            if (swiper) {
+                swiper.slidePrev();
+            }
+            break;
+        case 'ArrowRight':
+            e.preventDefault();
+            e.stopPropagation();
+            if (swiper) {
+                swiper.slideNext();
+                // Trigger next chunk loading if needed
+                setTimeout(() => {
+                    if (window.currentSwiperInstance) {
+                        const currentIndex = window.currentSwiperInstance.activeIndex;
+                        const totalCurrentSlides = window.currentSwiperInstance.virtual ? 
+                            window.currentSwiperInstance.virtual.slides.length : 
+                            window.currentSwiperInstance.slides.length;
+                        const totalPagesLocal = totalPages || 1;
+                        
+                        if (currentIndex >= totalCurrentSlides - 3 && currentChunkPage < totalPagesLocal) {
+                            loadNextChunk();
+                        }
+                    }
+                }, 100);
+            }
+            break;
+    }
+}
+
+// Cleanup function to remove event listeners
+export function cleanupEventHandlers() {
+    if (keyboardHandler) {
+        document.removeEventListener('keydown', keyboardHandler, true);
+        keyboardHandler = null;
     }
 }

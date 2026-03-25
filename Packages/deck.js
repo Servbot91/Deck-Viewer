@@ -3,6 +3,8 @@ import { detectContext, fetchContextImages, getVisibleImages, getVisibleGalleryC
 import { initSwiper } from './swiper.js';
 import { isMobile } from './utils.js';
 
+const GALLERY_ICON_SVG = '<svg fill="white" width="16" height="16" viewBox="0 0 36 36" style="vertical-align: middle;" xmlns="http://www.w3.org/2000/svg"><path d="M32,4H4A2,2,0,0,0,2,6V30a2,2,0,0,0,2,2H32a2,2,0,0,0,2-2V6A2,2,0,0,0,32,4ZM4,30V6H32V30Z"></path><path d="M8.92,14a3,3,0,1,0-3-3A3,3,0,0,0,8.92,14Zm0-4.6A1.6,1.6,0,1,1,7.33,11,1.6,1.6,0,0,1,8.92,9.41Z"></path><path d="M22.78,15.37l-5.4,5.4-4-4a1,1,0,0,0-1.41,0L5.92,22.9v2.83l6.79-6.79L16,22.18l-3.75,3.75H15l8.45-8.45L30,24V21.18l-5.81-5.81A1,1,0,0,0,22.78,15.37Z"></path></svg>';
+
 let pluginConfig = null;
 let currentSwiper = null;
 let currentImages = [];
@@ -156,6 +158,8 @@ function createDeckUI() {
             <button class="image-deck-control-btn" data-action="play">▶</button>
             <button class="image-deck-control-btn" data-action="next">▶</button>
             <button class="image-deck-control-btn image-deck-info-btn" data-action="info" title="Image Info (I)">ℹ</button>
+            <button class="image-deck-control-btn" data-action="zoom-in" title="Zoom In (+)">+</button>
+            <button class="image-deck-control-btn" data-action="zoom-out" title="Zoom Out (-)">-</button>
             <button class="image-deck-control-btn" data-action="next-chunk" title="Load Next Chunk">⏭️</button>
         </div>
         <div class="image-deck-speed">Speed: ${pluginConfig.autoPlayInterval}ms</div>
@@ -308,7 +312,7 @@ function restorePosition() {
 }
 
 // Load next chunk of images
-// Add this to your module-level variables at the top of the file
+
 let isChunkLoading = false; 
 
 export async function loadNextChunk() {
@@ -366,27 +370,41 @@ export async function loadNextChunk() {
         // 4. Update UI (Swiper OR Gallery)
         if (currentSwiper && currentSwiper.virtual) {
             // Re-generate ALL slides to ensure formatting consistency across the whole deck
-            const allSlides = currentImages.map(img => {
-                const fullSrc = img.paths.image;
-                const isGallery = img.url && !contextInfo?.isSingleGallery;
-                
-                if (isGallery) {
-                    return `
-                        <div class="swiper-zoom-container" data-type="gallery" data-url="${img.url}">
-                            <div class="gallery-cover-container">
-                                <div class="gallery-cover-title" title="${img.title || 'Untitled Gallery'}">${img.title || 'Untitled Gallery'}</div>
-                                <a href="${img.url}" target="_blank" class="gallery-cover-link">
-                                    <img src="${fullSrc}" alt="${img.title || ''}" decoding="async" loading="lazy" />
-                                </a>
-                            </div>
-                        </div>`;
-                } else {
-                    return `
-                        <div class="swiper-zoom-container" data-type="image">
-                            <img src="${fullSrc}" alt="${img.title || ''}" decoding="async" loading="lazy" style="max-width: 100%; height: auto; display: block; margin: 0 auto;" />
-                        </div>`;
-                }
-            });
+		const allSlides = currentImages.map(img => {
+			const fullSrc = img.paths.image;
+			const isGallery = img.url && !contextInfo?.isSingleGallery;
+			const title = img.title || 'Untitled';
+			
+			if (isGallery) {
+				// Create image count display with SVG icon
+				const imageCountDisplay = img.image_count !== undefined ? 
+					`${GALLERY_ICON_SVG}: ${img.image_count}` : '';
+				
+				// Create performer display
+				let performerDisplay = '';
+				if (img.performers && img.performers.length > 0) {
+			const performerNames = img.performers.map(p => p.name).join(', ');
+			performerDisplay = `<div class="gallery-performers" style="margin-top: 5px; font-size: 18px; color: #ccc;">${performerNames}</div>`;
+			}
+
+			return `
+				<div class="swiper-zoom-container" data-type="gallery" data-url="${img.url}">
+					<div class="gallery-cover-container">
+						<div class="gallery-cover-title" title="${title}">${title}</div>
+						${imageCountDisplay ? `<div class="gallery-image-count" style="font-size: 18px; color: #ccc; margin-top: 3px;">${imageCountDisplay}</div>` : ''}
+						<a href="${img.url}" target="_blank" class="gallery-cover-link">
+							<img src="${fullSrc}" alt="${title}" decoding="async" loading="lazy" />
+						</a>
+						${performerDisplay}
+					</div>
+				</div>`;
+						} else {
+							return `
+								<div class="swiper-zoom-container" data-type="image">
+									<img src="${fullSrc}" alt="${title}" decoding="async" loading="lazy" style="max-width: 100%; height: auto; display: block; margin: 0 auto;" />
+								</div>`;
+						}
+					});
 
             // Update Swiper Virtual Slides
             currentSwiper.virtual.slides = allSlides;
