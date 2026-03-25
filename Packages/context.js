@@ -184,20 +184,21 @@ export async function fetchContextImages(context, page = 1, perPage = 50) {
     // 1. Determine Query - Add performer and tag data for filtering
     let query = '';
     if (isFetchingGalleries) {
-        query = `query FindGalleries($filter: FindFilterType!, $gallery_filter: GalleryFilterType) {
-            findGalleries(filter: $filter, gallery_filter: $gallery_filter) {
-                count
-                galleries {
-                    id title cover { paths { thumbnail image } }
-                    performers {
-                        id
-                    }
-                    tags {
-                        id
-                    }
-                }
-            }
-        }`;
+		query = `query FindGalleries($filter: FindFilterType!, $gallery_filter: GalleryFilterType) {
+			findGalleries(filter: $filter, gallery_filter: $gallery_filter) {
+				count
+				galleries {
+					id title image_count cover { paths { thumbnail image } }
+					performers {
+						id
+						name
+					}
+					tags {
+						id
+					}
+				}
+			}
+		}`;
     } else {
         query = `query FindImages($filter: FindFilterType!, $image_filter: ImageFilterType) {
             findImages(filter: $filter, image_filter: $image_filter) {
@@ -347,14 +348,16 @@ export async function fetchContextImages(context, page = 1, perPage = 50) {
                 totalCount = result.galleries.length;
             }
             
-            normalizedImages = (result?.galleries || []).map(gallery => ({
-                id: gallery.id,
-                title: gallery.title,
-                isGallery: true,
-                type: 'gallery',
-                paths: { image: gallery.cover?.paths?.image || gallery.cover?.paths?.thumbnail || '' },
-                url: `/galleries/${gallery.id}`
-            }));
+			normalizedImages = (result?.galleries || []).map(gallery => ({
+				id: gallery.id,
+				title: gallery.title,
+				image_count: gallery.image_count,
+				performers: gallery.performers || [], // Add this line
+				isGallery: true,
+				type: 'gallery',
+				paths: { image: gallery.cover?.paths?.image || gallery.cover?.paths?.thumbnail || '' },
+				url: `/galleries/${gallery.id}`
+			}));
         } else {
             let result = data?.data?.findImages;
             totalCount = result?.count || 0;

@@ -3,6 +3,7 @@ import { closeDeck, startAutoPlay, stopAutoPlay, loadNextChunk } from './deck.js
 import { openMetadataModal, closeMetadataModal } from './metadata.js';
 
 let isDeckActive = false;
+let keyboardHandler = null;
 
 // Fullscreen functionality
 function toggleFullscreen() {
@@ -18,19 +19,44 @@ function toggleFullscreen() {
     }
 }
 
+// Helper function to check if current slide is a gallery
+function isCurrentSlideGallery() {
+    const swiper = window.currentSwiperInstance;
+    if (swiper && swiper.slides) {
+        const activeSlide = swiper.slides[swiper.activeIndex];
+        if (activeSlide) {
+            const zoomContainer = activeSlide.querySelector('.swiper-zoom-container');
+            if (zoomContainer && zoomContainer.dataset.type === 'gallery') {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Function to update the gallery state class
+function updateGalleryStateClass() {
+    const container = document.querySelector('.image-deck-container');
+    if (!container) return;
+    
+    if (isCurrentSlideGallery()) {
+        container.classList.add('gallery-active');
+    } else {
+        container.classList.remove('gallery-active');
+    }
+}
+
 // Setup event handlers
 export function setupEventHandlers(container) {
     // Set deck as active when handlers are set up
     setDeckActive(true);
-    // Store reference to handler for cleanup
-    keyboardHandler = handleKeyboard;
+    
     // Close button
     const closeBtn = container.querySelector('.image-deck-close');
     if (closeBtn) {
         closeBtn.addEventListener('click', closeDeck);
     }
-    // Keyboard controls - use capturing phase
-    document.addEventListener('keydown', handleKeyboard, true);
+    
     // Fullscreen button
     const fullscreenBtn = container.querySelector('.image-deck-fullscreen');
     if (fullscreenBtn) {
@@ -45,7 +71,7 @@ export function setupEventHandlers(container) {
 
     // Control buttons
     const controlButtons = container.querySelectorAll('.image-deck-control-btn');
-    
+
     controlButtons.forEach(button => {
         button.addEventListener('click', (e) => {
             const action = button.dataset.action;
@@ -83,6 +109,24 @@ export function setupEventHandlers(container) {
                 case 'info':
                     openMetadataModal();
                     break;
+                case 'zoom-in':
+                    // Only allow zoom on non-gallery slides
+                    if (swiper && swiper.zoom && !isCurrentSlideGallery()) {
+                        swiper.zoom.in();
+                    }
+                    break;
+                case 'zoom-out':
+                    // Only allow zoom on non-gallery slides
+                    if (swiper && swiper.zoom && !isCurrentSlideGallery()) {
+                        swiper.zoom.out();
+                    }
+                    break;
+                case 'zoom-reset':
+                    // Only allow zoom on non-gallery slides
+                    if (swiper && swiper.zoom && !isCurrentSlideGallery()) {
+                        swiper.zoom.reset();
+                    }
+                    break;
                 case 'next-chunk':
                     loadNextChunk();
                     break;
@@ -92,14 +136,27 @@ export function setupEventHandlers(container) {
         });
     });
 
+    // Add slide change listener to update gallery state
+    if (window.currentSwiperInstance) {
+        window.currentSwiperInstance.on('slideChangeTransitionEnd', function() {
+            updateGalleryStateClass();
+        });
+        
+        // Initial check for first slide
+        setTimeout(() => {
+            updateGalleryStateClass();
+        }, 0);
+    }
+
     // Keyboard controls - use capturing phase to intercept before other handlers
+    keyboardHandler = handleKeyboard;
     document.addEventListener('keydown', handleKeyboard, true);
+    
     // Swipe gestures logic
     setupSwipeGestures(container);
     // Mouse wheel support
     setupMouseWheel(container);
 }
-
 
 // Extracted swipe logic to keep setup clean
 function setupSwipeGestures(container) {
@@ -140,7 +197,6 @@ function setupSwipeGestures(container) {
         touchDeltaY = 0;
     }, { passive: true });
 }
-
 
 function setupMouseWheel(container) {
     // Mouse wheel support - attach directly to the swiper element
@@ -185,7 +241,7 @@ function handleKeyboard(e) {
     if (!isDeckActive) return;
     
     // Always prevent default for these keys when deck is active
-    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' ', 'Escape'].includes(e.key)) {
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' ', 'Escape', '+', '-', '0'].includes(e.key)) {
         e.preventDefault();
         e.stopPropagation(); // Stop event from bubbling up
     }
@@ -231,6 +287,27 @@ function handleKeyboard(e) {
                 openMetadataModal();
             }
             break;
+        // ZOOM CONTROLS
+        case '+':
+        case '=':
+            e.preventDefault();
+            if (swiper && swiper.zoom && !isCurrentSlideGallery()) {
+                swiper.zoom.in();
+            }
+            break;
+        case '-':
+        case '_':
+            e.preventDefault();
+            if (swiper && swiper.zoom && !isCurrentSlideGallery()) {
+                swiper.zoom.out();
+            }
+            break;
+        case '0':
+            e.preventDefault();
+            if (swiper && swiper.zoom && !isCurrentSlideGallery()) {
+                swiper.zoom.reset();
+            }
+            break;
         // ARROW KEY SUPPORT
         case 'ArrowLeft':
             e.preventDefault();
@@ -260,5 +337,13 @@ function handleKeyboard(e) {
                 }, 100);
             }
             break;
+    }
+}
+
+// Cleanup function to remove event listeners
+export function cleanupEventHandlers() {
+    if (keyboardHandler) {
+        document.removeEventListener('keydown', keyboardHandler, true);
+        keyboardHandler = null;
     }
 }
