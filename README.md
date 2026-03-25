@@ -13,7 +13,7 @@ Everything was tested then started again with new context from scratch if there 
 ---
 ## Improvements
 
-### Feature Integration and MISC
+### Feature Integration
 - Performer page integration
 	- logic works properly for gallery or images selection
 - Added Mouse wheel functionality
