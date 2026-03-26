@@ -1,5 +1,8 @@
 name: Build Zip and Update Metadata
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   push:
     branches:
@@ -13,13 +16,11 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-
-    # Prevent workflow from re-triggering itself
     if: github.actor != 'github-actions[bot]'
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
