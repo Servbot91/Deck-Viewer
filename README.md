@@ -2,7 +2,7 @@
 
 ## Overview
 
-Deck Viewer is a complete rework and reimagination of the original Image-Deck plugin that hijacks the built in stash image viewer. It is meant be used solely over the built in image viewbox and also adds a gallery viewbox. The plugin design is intended to make browsing galleries and images more streamlined and less error prone to accidental clicks\swipes and to futher optimize one hand browsing.
+Deck Viewer is a complete rework and reimagination of the original Image-Deck plugin and hijacks the built in stash image viewer. It is meant be used solely over the built in image viewbox and also adds a gallery viewbox. The plugin design is intended to make browsing galleries and images more streamlined and less error prone to accidental clicks\swipes and to futher optimize one hand browsing.
 
 Deck Viewer was written with AI assistance (qwen3-coder:480b, and my local qwen3-coder30b) following general Dev standards and hygeine while also protecting integrity of the plugin with simple A\B testing and versioning.
 

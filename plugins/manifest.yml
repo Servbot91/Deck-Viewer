@@ -2,7 +2,7 @@
   name: Deck Viewer
   metadata:
     description: An optimized single-hand gallery and image viewer for stash that replaces the default image viewer.
-  version: 1.0B
-  date: 2026-03-25 21:36:53
+  version: 1.0b741a7f
+  date: 2026-03-26 20:55:42
   path: https://github.com/Servbot91/Deck-Viewer/raw/refs/heads/main/plugins/Deck%20Viewer.zip
-  sha256: sha94494949049494944949
+  sha256: 6da862fd43b0fc1cc7b6f8860acc0ba2a8f1fc2cd8411d814716d55e81a35b97
