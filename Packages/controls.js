@@ -454,4 +454,6 @@ export function cleanupEventHandlers() {
         document.removeEventListener('keydown', keyboardHandler, true);
         keyboardHandler = null;
     }
+    // Reset deck active state
+    isDeckActive = false;
 }

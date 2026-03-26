@@ -126,17 +126,22 @@
     const images = [];
     const imageGrid = document.querySelector('.main-content, [role="main"]') || document.body;
     const imageElements = imageGrid.querySelectorAll(".image-card img, .grid-card img");
-    imageElements.forEach((img, index) => {
+    const imageArray = Array.from(imageElements);
+    imageArray.forEach((img, index) => {
       if (img.src && img.src.includes("/image/") && !img.src.includes("/studio/") && !img.closest(".logo, .sidebar, .header")) {
         const idMatch = img.src.match(/\/image\/(\d+)/);
         const id = idMatch ? idMatch[1] : `img_${index}`;
         const fullImageUrl = img.src.includes("/thumbnail/") ? img.src.replace("/thumbnail/", "/image/") : img.src;
+        const card = img.closest(".image-card, .grid-card");
+        const previewButton = card?.querySelector(".preview-button");
         images.push({
           id,
           title: img.alt || `Image ${index + 1}`,
           paths: {
             image: fullImageUrl
-          }
+          },
+          // Store reference to preview button
+          previewButton
         });
       }
     });
@@ -1434,6 +1439,7 @@
       document.removeEventListener("keydown", keyboardHandler, true);
       keyboardHandler = null;
     }
+    isDeckActive = false;
   }
   var isDeckActive, keyboardHandler;
   var init_controls = __esm({
@@ -1454,8 +1460,8 @@
     startAutoPlay: () => startAutoPlay,
     stopAutoPlay: () => stopAutoPlay
   });
-  async function openDeck() {
-    console.log("[Image Deck] Opening deck...");
+  async function openDeck(targetImageId = null) {
+    console.log("[Image Deck] Opening deck...", targetImageId);
     console.log("[Image Deck] Current URL:", window.location.pathname);
     try {
       currentChunkPage2 = 1;
@@ -1508,7 +1514,10 @@
       let imageResult;
       const isListContext = contextInfo && (contextInfo.isSingleGallery || contextInfo.isGalleryListing || contextInfo.type === "images" || contextInfo.isFilteredView || contextInfo.isPerformerContext || // Add performer context
       window.location.pathname.startsWith("/images"));
-      if (isListContext) {
+      if (targetImageId) {
+        console.log("[Image Deck] Using visible images for target navigation");
+        imageResult = getVisibleImages();
+      } else if (isListContext) {
         console.log("[Image Deck] Using context-based fetching for page 1");
         imageResult = await fetchContextImages(contextInfo, 1, chunkSize);
       } else {
@@ -1562,7 +1571,23 @@
           }
         });
       }
-      restorePosition();
+      if (targetImageId) {
+        const targetIndex = currentImages.findIndex((img) => img.id === targetImageId);
+        if (targetIndex !== -1) {
+          console.log(`[Image Deck] Navigating to target image at index ${targetIndex}`);
+          setTimeout(() => {
+            if (currentSwiper) {
+              currentSwiper.slideTo(targetIndex, 0);
+              updateUI(container2);
+            }
+          }, 100);
+        } else {
+          console.warn(`[Image Deck] Target image ${targetImageId} not found in current images`);
+          restorePosition();
+        }
+      } else {
+        restorePosition();
+      }
       updateUI(container2);
       Promise.resolve().then(() => (init_controls(), controls_exports)).then((module) => {
         module.setupEventHandlers(container2);
@@ -1832,6 +1857,9 @@
   }
   function closeDeck() {
     stopAutoPlay();
+    Promise.resolve().then(() => (init_controls(), controls_exports)).then((module) => {
+      module.cleanupEventHandlers();
+    });
     const container2 = document.querySelector(".image-deck-container");
     if (container2) {
       container2.classList.remove("active");
@@ -1847,6 +1875,11 @@
     currentImages = [];
     contextInfo = null;
     loadingQueue = [];
+    if (autoPlayInterval) {
+      clearInterval(autoPlayInterval);
+      autoPlayInterval = null;
+    }
+    isAutoPlaying = false;
   }
   var GALLERY_ICON_SVG2, pluginConfig, currentSwiper, currentImages, autoPlayInterval, isAutoPlaying, contextInfo, loadingQueue, currentChunkPage2, chunkSize, totalImageCount, totalPages2, storedContextInfo, uiUpdatePending, isChunkLoading;
   var init_deck = __esm({
@@ -1982,12 +2015,95 @@
     });
     console.log("[Image Deck] Initialized");
   }
+  function initPlugin() {
+    initPreviewObserver();
+  }
+  function initPreviewObserver() {
+    const previewObserver = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType === 1) {
+            let previewButtons = [];
+            if (node.matches && node.matches(".preview-button")) {
+              previewButtons.push(node);
+            }
+            if (node.querySelectorAll) {
+              previewButtons = [...previewButtons, ...node.querySelectorAll(".preview-button")];
+            }
+            previewButtons.forEach((previewContainer) => {
+              if (!previewContainer.dataset.hijacked) {
+                previewContainer.dataset.hijacked = "true";
+                const button = previewContainer.querySelector("button");
+                if (button) {
+                  const newButton = button.cloneNode(true);
+                  button.parentNode.replaceChild(newButton, button);
+                  newButton.addEventListener("click", (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log("[Image Deck] Preview button clicked (dynamic)");
+                    const card = previewContainer.closest(".image-card, .grid-card");
+                    const img = card?.querySelector('img[src*="/image/"]');
+                    let targetImageId = null;
+                    if (img) {
+                      const idMatch = img.src.match(/\/image\/(\d+)/);
+                      if (idMatch) {
+                        targetImageId = idMatch[1];
+                      }
+                    }
+                    Promise.resolve().then(() => (init_deck(), deck_exports)).then((module) => {
+                      module.openDeck(targetImageId);
+                    });
+                  });
+                }
+              }
+            });
+          }
+        });
+      });
+    });
+    previewObserver.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+    document.querySelectorAll(".preview-button").forEach(processPreviewButton);
+  }
+  function processPreviewButton(previewContainer) {
+    if (!previewContainer.dataset.hijacked) {
+      previewContainer.dataset.hijacked = "true";
+      const button = previewContainer.querySelector("button");
+      if (button) {
+        const newButton = button.cloneNode(true);
+        button.parentNode.replaceChild(newButton, button);
+        newButton.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          console.log("[Image Deck] Preview button clicked");
+          const card = previewContainer.closest(".image-card, .grid-card");
+          const img = card?.querySelector('img[src*="/image/"]');
+          let targetImageId = null;
+          if (img) {
+            const idMatch = img.src.match(/\/image\/(\d+)/);
+            if (idMatch) {
+              targetImageId = idMatch[1];
+            }
+          }
+          Promise.resolve().then(() => (init_deck(), deck_exports)).then((module) => {
+            module.openDeck(targetImageId);
+          });
+        });
+      }
+    }
+  }
 
   // main.js
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", initialize);
+    document.addEventListener("DOMContentLoaded", () => {
+      initialize();
+      initPlugin();
+    });
   } else {
     initialize();
+    initPlugin();
   }
   var lastUrl = location.href;
   var originalPushState = history.pushState;

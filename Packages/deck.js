@@ -549,6 +549,11 @@ export async function loadNextChunk(container = null) {
 export function closeDeck() {
     stopAutoPlay();
 
+    // Clean up event handlers before destroying the deck
+    import('./controls.js').then(module => {
+        module.cleanupEventHandlers();
+    });
+
     const container = document.querySelector('.image-deck-container');
     if (container) {
         container.classList.remove('active');
@@ -566,4 +571,11 @@ export function closeDeck() {
     currentImages = [];
     contextInfo = null;
     loadingQueue = [];
+    
+    // Clear any remaining intervals
+    if (autoPlayInterval) {
+        clearInterval(autoPlayInterval);
+        autoPlayInterval = null;
+    }
+    isAutoPlaying = false;
 }

@@ -1439,6 +1439,7 @@
       document.removeEventListener("keydown", keyboardHandler, true);
       keyboardHandler = null;
     }
+    isDeckActive = false;
   }
   var isDeckActive, keyboardHandler;
   var init_controls = __esm({
@@ -1856,6 +1857,9 @@
   }
   function closeDeck() {
     stopAutoPlay();
+    Promise.resolve().then(() => (init_controls(), controls_exports)).then((module) => {
+      module.cleanupEventHandlers();
+    });
     const container2 = document.querySelector(".image-deck-container");
     if (container2) {
       container2.classList.remove("active");
@@ -1871,6 +1875,11 @@
     currentImages = [];
     contextInfo = null;
     loadingQueue = [];
+    if (autoPlayInterval) {
+      clearInterval(autoPlayInterval);
+      autoPlayInterval = null;
+    }
+    isAutoPlaying = false;
   }
   var GALLERY_ICON_SVG2, pluginConfig, currentSwiper, currentImages, autoPlayInterval, isAutoPlaying, contextInfo, loadingQueue, currentChunkPage2, chunkSize, totalImageCount, totalPages2, storedContextInfo, uiUpdatePending, isChunkLoading;
   var init_deck = __esm({
