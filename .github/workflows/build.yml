@@ -1,1 +1,87 @@
+name: Build Zip and Update Metadata
 
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'plugins/Deck Viewer/**'
+    paths-ignore:
+      - 'plugins/Deck Viewer.zip'
+      - 'plugins/manifest.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    # Prevent workflow from re-triggering itself
+    if: github.actor != 'github-actions[bot]'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ---------------------------------
+      # Get commit info
+      # ---------------------------------
+      - name: Get commit info
+        id: commit
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          COMMIT_TS=$(git log -1 --pretty=format:'%ct')
+          COMMIT_DATE=$(date -d @$COMMIT_TS +"%Y-%m-%d %H:%M:%S")
+
+          echo "sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "date=$COMMIT_DATE" >> $GITHUB_OUTPUT
+
+      # ---------------------------------
+      # Build zip
+      # ---------------------------------
+      - name: Build Deck Viewer.zip
+        run: |
+          cd plugins
+          zip -r "Deck Viewer.zip" "Deck Viewer"
+
+      # ---------------------------------
+      # Calculate SHA256
+      # ---------------------------------
+      - name: Calculate SHA256
+        id: hash
+        run: |
+          HASH=$(sha256sum "plugins/Deck Viewer.zip" | awk '{ print $1 }')
+          echo "sha256=$HASH" >> $GITHUB_OUTPUT
+
+      # ---------------------------------
+      # Update manifest.yml
+      # ---------------------------------
+      - name: Update version, date, and sha256
+        run: |
+          FILE="plugins/manifest.yml"
+
+          sed -i "s|^version:.*|version: 1.0-${{ steps.commit.outputs.sha }}|" "$FILE"
+          sed -i "s|^date:.*|date: ${{ steps.commit.outputs.date }}|" "$FILE"
+          sed -i "s|^sha256:.*|sha256: ${{ steps.hash.outputs.sha256 }}|" "$FILE"
+
+      # ---------------------------------
+      # Commit changes
+      # ---------------------------------
+      - name: Commit updated files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add "plugins/Deck Viewer.zip"
+          git add "plugins/manifest.yml"
+
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git pull --rebase
+            git commit -m "Auto-build zip and update metadata (1.0-${{ steps.commit.outputs.sha }})"
+            git push
+          fi
